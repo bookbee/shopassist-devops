@@ -1,0 +1,124 @@
+name: Compose smoke test
+
+# Checks out all four project repos as siblings (matching the layout this
+# whole repo assumes locally), brings the platform up via the same
+# docker-compose.yml a developer runs, and hits the chat endpoint end to
+# end. This is a smoke test, not a regression suite — it exists to catch
+# "the platform doesn't boot together anymore", which the sibling repos'
+# own CI (if any) can't see since each only tests itself in isolation.
+#
+# Repo owners are configurable via repository variables (Settings ->
+# Secrets and variables -> Actions -> Variables) since they aren't
+# consistent today — shopassist currently lives under a different owner
+# than the other three. Set these if that changes, or if you fork the
+# whole platform:
+#   SHOPASSIST_DATABASE_REPO, SHOPASSIST_MODEL_REPO, SHOPASSIST_REPO,
+#   SHOPASSIST_STREAMLIT_REPO
+#
+# If any of the four repos are private, cross-repo checkout also needs a
+# PAT with access to them, stored as a secret (e.g. PLATFORM_CHECKOUT_TOKEN)
+# and passed as `token:` below — the default GITHUB_TOKEN can only check
+# out public repos owned by someone else.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  SHOPASSIST_DATABASE_REPO: ${{ vars.SHOPASSIST_DATABASE_REPO || 'bookbee/shopassist-database' }}
+  SHOPASSIST_MODEL_REPO: ${{ vars.SHOPASSIST_MODEL_REPO || 'bookbee/shopassist-model' }}
+  SHOPASSIST_REPO: ${{ vars.SHOPASSIST_REPO || 'SureshKalle/shopassist' }}
+  SHOPASSIST_STREAMLIT_REPO: ${{ vars.SHOPASSIST_STREAMLIT_REPO || 'bookbee/shopassist-streamlit' }}
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout shopassist-devops
+        uses: actions/checkout@v4
+        with:
+          path: shopassist-devops
+
+      - name: Checkout shopassist-database
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SHOPASSIST_DATABASE_REPO }}
+          path: shopassist-database
+          token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout shopassist-model
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SHOPASSIST_MODEL_REPO }}
+          path: shopassist-model
+          token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout shopassist
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SHOPASSIST_REPO }}
+          path: shopassist
+          token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout shopassist-streamlit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SHOPASSIST_STREAMLIT_REPO }}
+          path: shopassist-streamlit
+          token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Prepare .env files (same defaults as scripts/up.sh)
+        run: |
+          set -e
+          cp shopassist-devops/.env.example shopassist-devops/.env
+          for proj in shopassist-database shopassist-model; do
+            if [ -f "$proj/.env.example" ] && [ ! -f "$proj/.env" ]; then
+              cp "$proj/.env.example" "$proj/.env"
+            fi
+          done
+
+      - name: Validate merged compose config
+        working-directory: shopassist-devops
+        run: docker compose config --quiet
+
+      - name: Create external Postgres volume
+        run: docker volume create shopassist-postgres-data
+
+      - name: Bring the platform up
+        working-directory: shopassist-devops
+        run: docker compose up -d --build
+
+      - name: Wait for the API to report healthy
+        working-directory: shopassist-devops
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/api/v1/health >/dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::API never became healthy within 5 minutes" >&2
+          docker compose logs
+          exit 1
+
+      - name: Smoke-test the chat endpoint end to end
+        run: |
+          set -e
+          response=$(curl -sf -X POST http://localhost:8000/api/v1/chat \
+            -H "Content-Type: application/json" \
+            -d '{"user_id": "1", "text": "hello"}')
+          echo "$response"
+          echo "$response" | grep -q response_text
+
+      - name: Dump logs on failure
+        if: failure()
+        working-directory: shopassist-devops
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        working-directory: shopassist-devops
+        run: docker compose down -v

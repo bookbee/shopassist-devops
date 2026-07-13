@@ -1,0 +1,10 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+
+# Local overrides / secrets
+.env
+docker-compose.override.yml
+
+# OS junk
+.DS_Store

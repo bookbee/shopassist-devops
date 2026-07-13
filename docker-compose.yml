@@ -1,0 +1,114 @@
+# Root orchestration for the whole ShopAssist platform.
+#
+# Assumes all four project repos are checked out as siblings of this one:
+#
+#   some-folder/
+#   ├── shopassist-devops/     (this repo)
+#   ├── shopassist-database/
+#   ├── shopassist-model/
+#   ├── shopassist/
+#   └── shopassist-streamlit/
+#
+# `include:` pulls in shopassist-database's and shopassist-model's own
+# compose files unmodified — each stays fully self-contained and
+# independently runnable via `docker compose up` from inside its own repo.
+# This file only adds: a shared network so all four can reach each other,
+# and the `api`/`web` services themselves (shopassist and shopassist-streamlit
+# have no Dockerfile of their own — see docker/ in this repo and the
+# top-level README for why).
+include:
+  - path: ../shopassist-database/docker-compose.yml
+  - path: ../shopassist-model/docker-compose.yml
+
+networks:
+  shopassist-platform:
+    name: shopassist-platform
+
+services:
+  # --- attach the included services to the shared platform network -------
+  # Listed explicitly (not relying on Compose to merge/append the original
+  # network list) so the end result is unambiguous regardless of merge
+  # semantics: postgres/ollama/model-bootstrap keep their own project's
+  # network (so `docker compose up` still works from inside their own repo
+  # standalone) *and* join shopassist-platform (so `api` can reach them here).
+  postgres:
+    networks:
+      - shopassist-network
+      - shopassist-platform
+
+  ollama:
+    networks:
+      - shopassist-model-network
+      - shopassist-platform
+
+  model-bootstrap:
+    networks:
+      - shopassist-model-network
+      - shopassist-platform
+
+  # --- shopassist FastAPI backend -----------------------------------------
+  api:
+    build:
+      context: ../shopassist
+      dockerfile: ../shopassist-devops/docker/shopassist/Dockerfile
+    container_name: shopassist-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Container-to-container by service name, not localhost:11434 — this
+      # is the one thing that's genuinely different from shopassist's own
+      # standalone .env, where OLLAMA_API_BASE_URL defaults to localhost.
+      OLLAMA_API_BASE_URL: http://ollama:11434
+      # Must match shopassist-model/config/models.yaml — that file controls
+      # what actually gets pulled, this just tells shopassist what to ask
+      # for. Change SHOPASSIST_MODEL in .env if you change that file's
+      # default, or these two projects will disagree about the model name.
+      OLLAMA_ROUTER_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
+      OLLAMA_AGENT_REASON_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
+      OLLAMA_AGENT_INTERPRET_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
+      OLLAMA_GENERATIVE_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
+      OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+      # DATABASE_URL intentionally left unset: shopassist's own schema
+      # (customers/items/sessions/orders/order_items) doesn't match
+      # shopassist-database's (customers/products/orders/order_items) yet,
+      # so it still runs on its own local SQLite fallback for now. Postgres
+      # comes up as part of this platform regardless (below), ready for
+      # whenever that reconciliation happens — see this repo's README.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - shopassist-platform
+
+  # --- shopassist-streamlit storefront -------------------------------------
+  web:
+    build:
+      context: ../shopassist-streamlit
+      dockerfile: ../shopassist-devops/docker/shopassist-streamlit/Dockerfile
+    container_name: shopassist-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8501}:8501"
+    environment:
+      API_BASE_URL: http://api:8000
+      APP_TITLE: ${APP_TITLE:-IISc Alumni Store}
+      ENABLE_CHATBOT: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - shopassist-platform
