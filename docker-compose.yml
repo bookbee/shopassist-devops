@@ -92,6 +92,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
+      - shopassist-api-network
       - shopassist-platform
 
   # --- shopassist-client storefront client ---------------------------------
@@ -109,4 +110,5 @@ services:
       api:
         condition: service_healthy
     networks:
+      - shopassist-client-network
       - shopassist-platform
