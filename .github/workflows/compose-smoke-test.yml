@@ -30,12 +30,7 @@ env:
   SHOPASSIST_DATABASE_REPO: ${{ vars.SHOPASSIST_DATABASE_REPO || 'bookbee/shopassist-database' }}
   SHOPASSIST_MODEL_REPO: ${{ vars.SHOPASSIST_MODEL_REPO || 'bookbee/shopassist-model' }}
   SHOPASSIST_REPO: ${{ vars.SHOPASSIST_REPO || 'SureshKalle/shopassist' }}
-  # Default is the repo's current GitHub name (shopassist-streamlit) — the
-  # client project itself was renamed to shopassist-client locally, but the
-  # GitHub repo rename is still pending. GitHub redirects checkouts of the
-  # old name once the rename happens, so leave this as-is until then; only
-  # switch it to bookbee/shopassist-client if the redirect is ever removed.
-  SHOPASSIST_CLIENT_REPO: ${{ vars.SHOPASSIST_CLIENT_REPO || 'bookbee/shopassist-streamlit' }}
+  SHOPASSIST_CLIENT_REPO: ${{ vars.SHOPASSIST_CLIENT_REPO || 'bookbee/shopassist-client' }}
 
 jobs:
   smoke-test:
