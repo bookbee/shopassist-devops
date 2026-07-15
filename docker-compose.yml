@@ -6,19 +6,30 @@
 #   ├── shopassist-devops/     (this repo)
 #   ├── shopassist-database/
 #   ├── shopassist-model/
-#   ├── shopassist/
-#   └── shopassist-streamlit/
+#   ├── shopassist/             FastAPI backend  -> container/image "shopassist-api"
+#   └── shopassist-client/         Web client -> container/image "shopassist-client"
 #
-# `include:` pulls in shopassist-database's and shopassist-model's own
-# compose files unmodified — each stays fully self-contained and
-# independently runnable via `docker compose up` from inside its own repo.
-# This file only adds: a shared network so all four can reach each other,
-# and the `api`/`web` services themselves (shopassist and shopassist-streamlit
-# have no Dockerfile of their own — see docker/ in this repo and the
-# top-level README for why).
+# `include:` pulls in all four projects' own compose files unmodified -
+# each stays fully self-contained and independently runnable via
+# `docker compose up` from inside its own repo. This file only adds: a
+# shared network so all four can reach each other, and the
+# container-network URLs (`postgres:5432`, `ollama:11434`, `api:8000`)
+# each of them would otherwise only know how to reach via
+# `localhost`/`host.docker.internal`.
+#
+# Naming convention across all four containers/images: `shopassist-<role>`
+# - shopassist-database -> container `shopassist-postgres` (Postgres is the
+#   role; "shopassist-database" is the *project*, not the container)
+# - shopassist-model     -> containers `shopassist-ollama` (the LLM host)
+#   and `shopassist-model-bootstrap` (one-shot model-pull job)
+# - shopassist            -> container/image `shopassist-api`
+# - shopassist-client      -> container/image `shopassist-client` (same name,
+#   project already named after its role)
 include:
   - path: ../shopassist-database/docker-compose.yml
   - path: ../shopassist-model/docker-compose.yml
+  - path: ../shopassist/docker-compose.yml
+  - path: ../shopassist-client/docker-compose.yml
 
 networks:
   shopassist-platform:
@@ -28,9 +39,10 @@ services:
   # --- attach the included services to the shared platform network -------
   # Listed explicitly (not relying on Compose to merge/append the original
   # network list) so the end result is unambiguous regardless of merge
-  # semantics: postgres/ollama/model-bootstrap keep their own project's
-  # network (so `docker compose up` still works from inside their own repo
-  # standalone) *and* join shopassist-platform (so `api` can reach them here).
+  # semantics: postgres/ollama/model-bootstrap/api/client all keep their
+  # own project's network (so `docker compose up` still works from inside
+  # each one's own repo standalone) *and* join shopassist-platform (so
+  # they can reach each other here).
   postgres:
     networks:
       - shopassist-network
@@ -47,20 +59,17 @@ services:
       - shopassist-platform
 
   # --- shopassist FastAPI backend -----------------------------------------
+  # Everything below overrides shopassist/docker-compose.yml's standalone
+  # defaults (host.docker.internal, no DATABASE_URL) with the real
+  # container-network addresses now that every service shares the
+  # shopassist-platform network - Compose merges `environment` key-by-key,
+  # so only the keys listed here actually change.
   api:
-    build:
-      context: ../shopassist
-      dockerfile: ../shopassist-devops/docker/shopassist/Dockerfile
-    container_name: shopassist-api
-    restart: unless-stopped
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
-      # Container-to-container by service name, not localhost:11434 — this
-      # is the one thing that's genuinely different from shopassist's own
-      # standalone .env, where OLLAMA_API_BASE_URL defaults to localhost.
       OLLAMA_API_BASE_URL: http://ollama:11434
-      # Must match shopassist-model/config/models.yaml — that file controls
+      # Must match shopassist-model/config/models.yaml - that file controls
       # what actually gets pulled, this just tells shopassist what to ask
       # for. Change SHOPASSIST_MODEL in .env if you change that file's
       # default, or these two projects will disagree about the model name.
@@ -69,31 +78,26 @@ services:
       OLLAMA_AGENT_INTERPRET_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
       OLLAMA_GENERATIVE_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
       OLLAMA_EMBEDDING_MODEL: nomic-embed-text
-      # DATABASE_URL intentionally left unset: shopassist's own schema
-      # (customers/items/sessions/orders/order_items) doesn't match
-      # shopassist-database's (customers/products/orders/order_items) yet,
-      # so it still runs on its own local SQLite fallback for now. Postgres
-      # comes up as part of this platform regardless (below), ready for
-      # whenever that reconciliation happens — see this repo's README.
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 20s
+      # shopassist and shopassist-database share the same schema
+      # (customers/items/sessions/orders/order_items, cust-1001/item-1001/
+      # ord-1001 IDs throughout) - see shopassist-database's
+      # docs/database-design.md - so this is a real, working connection,
+      # not a placeholder. Credentials match shopassist-database's own
+      # .env.example defaults; override SHOPASSIST_DATABASE_* here if you
+      # change those.
+      DATABASE_URL: postgresql://${SHOPASSIST_DATABASE_USER:-shopassist}:${SHOPASSIST_DATABASE_PASSWORD:-shopassist123}@postgres:5432/${SHOPASSIST_DATABASE_NAME:-shopassist}
     depends_on:
       ollama:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - shopassist-platform
 
-  # --- shopassist-streamlit storefront -------------------------------------
-  web:
-    build:
-      context: ../shopassist-streamlit
-      dockerfile: ../shopassist-devops/docker/shopassist-streamlit/Dockerfile
-    container_name: shopassist-web
-    restart: unless-stopped
+  # --- shopassist-client storefront client ---------------------------------
+  # Same idea as `api` above: overrides shopassist-client/docker-compose.yml's
+  # standalone default (host.docker.internal) with the real container URL.
+  client:
     ports:
       - "${WEB_PORT:-8501}:8501"
     environment:
@@ -101,12 +105,6 @@ services:
       APP_TITLE: ${APP_TITLE:-IISc Alumni Store}
       ENABLE_CHATBOT: "true"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 20s
     depends_on:
       api:
         condition: service_healthy

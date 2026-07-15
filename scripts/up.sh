@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Brings up the whole ShopAssist platform: Postgres, Ollama (+ model pull),
-# the FastAPI backend, and the Streamlit storefront — in dependency order.
+# the FastAPI backend, and the storefront client — in dependency
+# order.
 #
 # Usage: ./scripts/up.sh
 set -euo pipefail
@@ -9,11 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PARENT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
-ALL_PROJECTS=(shopassist-database shopassist-model shopassist shopassist-streamlit)
-# Only these two are `include:`d as-is and read their own .env for compose
-# variable substitution — shopassist/shopassist-streamlit are built fresh
-# from this repo's docker/ Dockerfiles with everything already specified
-# in docker-compose.yml, so they don't need one for this to work.
+ALL_PROJECTS=(shopassist-database shopassist-model shopassist shopassist-client)
+# All four are `include:`d as-is (each owns its own docker-compose.yml) and
+# reads its own .env for compose variable substitution. shopassist-database
+# and shopassist-model ship an .env.example to bootstrap from — shopassist
+# (the API) and shopassist-client (the storefront) both hardcode their
+# container-relevant defaults directly in their own docker-compose.yml, so
+# neither needs one for this to work.
 ENV_BOOTSTRAP_PROJECTS=(shopassist-database shopassist-model)
 
 echo "==> Checking sibling checkouts in $PARENT_DIR ..."
@@ -72,7 +75,7 @@ Still coming up? Useful commands:
     docker compose logs -f model-bootstrap   # watch the model download
     docker compose ps                        # health status of every service
 
-Once shopassist-web shows "healthy":
+Once shopassist-client shows "healthy":
 
     Storefront:  http://localhost:8501
     API docs:    http://localhost:8000/docs
