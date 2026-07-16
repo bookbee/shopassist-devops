@@ -1,0 +1,94 @@
+# Optional observability overlay — NOT part of the default `docker compose
+# up` (see ../scripts/up.sh, which never references this file). Layer it in
+# explicitly once the base platform is already running:
+#
+#   docker compose -f docker-compose.yml \
+#                   -f observability/docker-compose.observability.yml up -d
+#
+# (run from the shopassist-devops repo root, same as every other command in
+# this repo's README).
+#
+# v1 scope, deliberately: Prometheus scrapes the standard HTTP request
+# count/latency metrics that `prometheus-fastapi-instrumentator` now exposes
+# at GET /metrics on the two real FastAPI apps this platform already has —
+# shopassist's `api` and shopassist-model's `classifier` — and Grafana
+# visualizes them via one pre-provisioned dashboard. Nothing else is wired
+# up yet:
+#   - No log aggregation (Loki/Promtail) — metrics only, logs still go to
+#     `docker compose logs` same as today.
+#   - No custom business metrics (RAG query count, agent-routing counts,
+#     LLM call latency) — only generic HTTP-layer metrics for now.
+#   - No Postgres metrics (would need a postgres_exporter sidecar) or
+#     Ollama metrics (no native Prometheus support) — out of scope for v1.
+# See the root README's "Optional: observability" section for the
+# rationale and how this might grow.
+#
+# Official images directly, same pattern as ../shopassist-model/vllm's
+# overlay — no custom Dockerfiles needed for either service.
+#
+# Bind-mount paths below are written relative to this repo's root (where
+# docker-compose.yml lives), not to this file's own observability/
+# directory — unlike `include:` (which gives each included file its own
+# directory as the base for its relative paths), plain multi-`-f` merging
+# resolves every file's relative paths against the *first* file's
+# directory. Confirmed by testing: `./prometheus/...` here failed to
+# mount ("not a directory") until changed to `./observability/prometheus/...`.
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-latest}
+    container_name: shopassist-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - shopassist-prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+    networks:
+      - shopassist-platform
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-latest}
+    container_name: shopassist-grafana
+    restart: unless-stopped
+    environment:
+      # Local-dev default only — change this (or set it via a real secret)
+      # before this ever runs anywhere beyond a laptop.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      # Datasource + dashboard-provider config, read-only — Grafana loads
+      # both automatically at startup, no manual UI setup needed.
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - shopassist-grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+    networks:
+      - shopassist-platform
+
+networks:
+  # References the network already declared (with `name: shopassist-platform`)
+  # in the base docker-compose.yml — Compose merges top-level `networks:`
+  # blocks across `-f` files by name, same mechanism the four `include:`d
+  # projects' services already rely on.
+  shopassist-platform: {}
+
+volumes:
+  shopassist-prometheus-data:
+    name: shopassist-prometheus-data
+  shopassist-grafana-data:
+    name: shopassist-grafana-data

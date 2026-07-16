@@ -94,6 +94,32 @@ Stop it:
 Everything after the first run works **fully offline** — nothing reaches
 the internet once images are built and the model is pulled.
 
+## Optional: observability (Prometheus + Grafana)
+
+Not part of the default stack above — an opt-in overlay, layered on once
+the platform is already running:
+
+```bash
+docker compose -f docker-compose.yml \
+                -f observability/docker-compose.observability.yml up -d
+```
+
+- Prometheus — <http://localhost:9090> — scrapes `GET /metrics` on
+  `shopassist`'s `api` and `shopassist-model`'s `classifier` (both expose
+  it via `prometheus-fastapi-instrumentator`).
+- Grafana — <http://localhost:3000> (default `admin`/`admin`, override via
+  `GRAFANA_ADMIN_PASSWORD`) — the Prometheus datasource and a "ShopAssist
+  Overview" dashboard (request rate, p95 latency, 5xx rate, all split by
+  service) are provisioned automatically, nothing to click through.
+
+**v1 scope, deliberately**: generic HTTP-layer metrics only. Not yet
+built, and called out here rather than silently missing: log aggregation
+(Loki/Promtail — `docker compose logs` is still it for now), custom
+business metrics (RAG query counts, agent-routing counts, LLM call
+latency), a `postgres_exporter` for Postgres-level metrics, and Ollama
+metrics (no native Prometheus support to hook into). Natural follow-ups
+once this base layer earns its keep.
+
 ## Why `include:`, not one giant compose file
 
 Each project keeps owning its `docker-compose.yml` and stays
