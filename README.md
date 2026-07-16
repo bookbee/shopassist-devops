@@ -11,12 +11,12 @@ shared network plus a handful of environment overrides.
 
 ## The four projects
 
-| Project (repo)        | Role                | Container(s) / image                              | Starts...                             |
-|-----------------------|---------------------|---------------------------------------------------|---------------------------------------|
-| `shopassist-database` | Postgres            | `shopassist-postgres`                             | first, no dependencies                |
-| `shopassist-model`    | Ollama + model pull | `shopassist-ollama`, `shopassist-model-bootstrap` | first, no dependencies                |
-| `shopassist`          | FastAPI backend     | `shopassist-api`                                  | after Ollama and Postgres are healthy |
-| `shopassist-client`   | storefront client   | `shopassist-client`                               | after the API is healthy              |
+| Project (repo)        | Role                | Container(s) / image                                                                                           | Starts...                             |
+|-----------------------|---------------------|----------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| `shopassist-database` | Postgres            | `shopassist-postgres`                                                                                          | first, no dependencies                |
+| `shopassist-model`    | Ollama + classifier | `shopassist-ollama`, `shopassist-ollama-bootstrap`, `shopassist-classifier`, `shopassist-classifier-bootstrap` | first, no dependencies                |
+| `shopassist`          | FastAPI backend     | `shopassist-api`                                                                                               | after Ollama and Postgres are healthy |
+| `shopassist-client`   | storefront client   | `shopassist-client`                                                                                            | after the API is healthy              |
 
 **Naming**: every container/image is `shopassist-<role>`, not
 `shopassist-<repo-name>` — that's what you actually search for in `docker
@@ -30,7 +30,8 @@ happen to build from.
 
 - **Docker Desktop** (or Docker Engine + Compose v2 on Linux) — the only
   manual install.
-- ~10GB free disk (LLM + Postgres + image layers).
+- ~11GB free disk (LLM + encoder classification models + Postgres + image
+  layers).
 - All five repos cloned as **siblings**:
 
   ```text
@@ -63,14 +64,16 @@ hardcode their container env directly in their own `docker-compose.yml`,
 so neither needs one), creates the external Postgres volume, then runs
 `docker compose up -d --build`.
 
-First run downloads a ~2GB model and builds two images
-(`shopassist-api`, `shopassist-client`) — expect several minutes. Every
-run after is fast; the model and Postgres data persist in named volumes,
-not inside any container.
+First run downloads a ~2GB chat model plus ~1.2GB of encoder classification
+models, and builds three images (`shopassist-api`, `shopassist-client`,
+`shopassist-classifier`) — expect several minutes. Every run after is
+fast; models and Postgres data persist in named volumes, not inside any
+container.
 
 ```bash
-docker compose logs -f model-bootstrap   # model download progress
-docker compose ps                         # health status of every service
+docker compose logs -f ollama-bootstrap             # chat/embedding model download progress
+docker compose logs -f classifier-bootstrap        # classification model download progress
+docker compose ps                                   # health status of every service
 ```
 
 Once `shopassist-client` shows `healthy`:
@@ -110,7 +113,7 @@ network — see the comments in `docker-compose.yml` for exactly which
 ## What's honestly not wired up yet
 
 - **Model name is synced by hand across two repos.**
-  `shopassist-model/config/models.yaml` controls what actually gets
+  `shopassist-model/config/ollama.yaml` controls what actually gets
   pulled into Ollama; this repo's `.env` (`SHOPASSIST_MODEL`) controls
   what `shopassist` asks for. Change one without the other and
   routing/generation calls fail against a model that was never pulled.
@@ -119,6 +122,11 @@ network — see the comments in `docker-compose.yml` for exactly which
   repo's `docker-compose.yml` assumes they still match its own defaults
   when building `api`'s `DATABASE_URL`. Override `SHOPASSIST_DATABASE_*`
   here (see `.env.example`) if you change those.
+- **`classifier` is only consumed by the offline data-ingestion script
+  today**, not the live chat request path — `api` gets
+  `CLASSIFIER_API_BASE_URL` and joins the same network, but there's no
+  `depends_on` between them, deliberately. See `shopassist`'s
+  `services/data_pipeline.py` / `main_simulation.py`.
 
 ## CI
 
@@ -158,7 +166,7 @@ see their READMEs.
   sibling of `shopassist-devops`, not inside it.
 - **`api` never goes healthy** — check `docker compose logs api`; often
   it's waiting on `ollama` or `postgres`. Check `docker compose logs
-  model-bootstrap` and `docker compose logs postgres` first.
+  ollama-bootstrap` and `docker compose logs postgres` first.
 - **`api` is healthy but `database_reachable: false`** — check `docker
   compose logs postgres`, and confirm `shopassist-database/.env`'s
   credentials match `api`'s `DATABASE_URL` (see "What's honestly not
@@ -168,7 +176,7 @@ see their READMEs.
 - **Port already in use** — set `API_PORT`/`WEB_PORT` in this repo's
   `.env`, or `OLLAMA_PORT` in `shopassist-model`'s.
 - **Chat replies are generic / routing seems off** — confirm
-  `SHOPASSIST_MODEL` here matches `shopassist-model/config/models.yaml`.
+  `SHOPASSIST_MODEL` here matches `shopassist-model/config/ollama.yaml`.
 - **Started fresh but old data is still there** — `./scripts/down.sh`
   alone preserves the Postgres volume and downloaded models on purpose;
   use `--wipe` for a genuinely clean slate.

@@ -20,8 +20,11 @@
 # Naming convention across all four containers/images: `shopassist-<role>`
 # - shopassist-database -> container `shopassist-postgres` (Postgres is the
 #   role; "shopassist-database" is the *project*, not the container)
-# - shopassist-model     -> containers `shopassist-ollama` (the LLM host)
-#   and `shopassist-model-bootstrap` (one-shot model-pull job)
+# - shopassist-model     -> containers `shopassist-ollama` (the LLM host),
+#   `shopassist-ollama-bootstrap` (one-shot chat/embedding model-pull job),
+#   `shopassist-classifier` (encoder-family sentiment/topic
+#   classification), and `shopassist-classifier-bootstrap` (one-shot
+#   classifier-model download)
 # - shopassist            -> container/image `shopassist-api`
 # - shopassist-client      -> container/image `shopassist-client` (same name,
 #   project already named after its role)
@@ -39,7 +42,7 @@ services:
   # --- attach the included services to the shared platform network -------
   # Listed explicitly (not relying on Compose to merge/append the original
   # network list) so the end result is unambiguous regardless of merge
-  # semantics: postgres/ollama/model-bootstrap/api/client all keep their
+  # semantics: postgres/ollama/ollama-bootstrap/api/client all keep their
   # own project's network (so `docker compose up` still works from inside
   # each one's own repo standalone) *and* join shopassist-platform (so
   # they can reach each other here).
@@ -53,7 +56,15 @@ services:
       - shopassist-model-network
       - shopassist-platform
 
-  model-bootstrap:
+  ollama-bootstrap:
+    networks:
+      - shopassist-model-network
+      - shopassist-platform
+
+  # classifier-bootstrap is deliberately not listed here: it's a one-shot
+  # download job nothing else needs to reach by name, so it doesn't need
+  # shopassist-platform — its own project network is enough.
+  classifier:
     networks:
       - shopassist-model-network
       - shopassist-platform
@@ -69,7 +80,7 @@ services:
       - "${API_PORT:-8000}:8000"
     environment:
       OLLAMA_API_BASE_URL: http://ollama:11434
-      # Must match shopassist-model/config/models.yaml - that file controls
+      # Must match shopassist-model/config/ollama.yaml - that file controls
       # what actually gets pulled, this just tells shopassist what to ask
       # for. Change SHOPASSIST_MODEL in .env if you change that file's
       # default, or these two projects will disagree about the model name.
@@ -78,6 +89,11 @@ services:
       OLLAMA_AGENT_INTERPRET_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
       OLLAMA_GENERATIVE_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
       OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+      # shopassist-model's encoder-family classifier service (sentiment +
+      # topic classification) — only called today by the offline
+      # data-ingestion pipeline, not the live chat request path, so
+      # `api` doesn't `depends_on: classifier` below.
+      CLASSIFIER_API_BASE_URL: http://classifier:8000
       # shopassist and shopassist-database share the same schema
       # (customers/items/sessions/orders/order_items, cust-1001/item-1001/
       # ord-1001 IDs throughout) - see shopassist-database's

@@ -76,7 +76,7 @@ Write-Host @"
 
 Still coming up? Useful commands:
 
-    docker compose logs -f model-bootstrap   # watch the model download
+    docker compose logs -f ollama-bootstrap  # watch the model download
     docker compose ps                        # health status of every service
 
 Once shopassist-client shows "healthy":
