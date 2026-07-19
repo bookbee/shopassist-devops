@@ -95,8 +95,8 @@ services:
       # `api` doesn't `depends_on: classifier` below.
       CLASSIFIER_API_BASE_URL: http://classifier:8000
       # shopassist and shopassist-database share the same schema
-      # (customers/items/sessions/orders/order_items, cust-1001/item-1001/
-      # ord-1001 IDs throughout) - see shopassist-database's
+      # (customers/items/sessions/orders/order_items, alum-1001/item-1001/
+      # sess-1001/ord-1001 IDs throughout) - see shopassist-database's
       # docs/database-design.md - so this is a real, working connection,
       # not a placeholder. Credentials match shopassist-database's own
       # .env.example defaults; override SHOPASSIST_DATABASE_* here if you
