@@ -9,6 +9,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Deliberately plain `docker compose down`, with no
+# -f docker-compose.host-ollama.yml overlay: a service the overlay parks
+# behind a profile is EXCLUDED from that overlay's teardown, so bringing
+# the stack down "the same way it went up" left the bundled ollama
+# container running (and holding port 11434) after a --native-llm session.
+# The base file lists every service, so this stops all of them regardless
+# of which layout started them.
+
 if [ "${1:-}" = "--wipe" ]; then
     echo "==> Stopping the platform and deleting all data (Postgres + Ollama models) ..."
     docker compose down -v
