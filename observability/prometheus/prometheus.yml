@@ -1,0 +1,19 @@
+# Scrape targets use the same container-network hostnames the base
+# docker-compose.yml already relies on for service-to-service calls (e.g.
+# `CLASSIFIER_API_BASE_URL: http://classifier:8000`) — both `api` and
+# `classifier` join `shopassist-platform`, which this container also joins.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: shopassist-api
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: shopassist-api
+
+  - job_name: shopassist-classifier
+    static_configs:
+      - targets: ["classifier:8000"]
+        labels:
+          service: shopassist-classifier

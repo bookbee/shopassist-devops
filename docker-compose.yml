@@ -6,8 +6,8 @@
 #   ├── shopassist-devops/     (this repo)
 #   ├── shopassist-database/
 #   ├── shopassist-model/
-#   ├── shopassist/             FastAPI backend  -> container/image "shopassist-api"
-#   └── shopassist-client/         Web client -> container/image "shopassist-client"
+#   ├── shopassist-service/    FastAPI backend -> container/image "shopassist-api"
+#   └── shopassist-client/     Web client      -> container/image "shopassist-client"
 #
 # `include:` pulls in all four projects' own compose files unmodified -
 # each stays fully self-contained and independently runnable via
@@ -20,15 +20,19 @@
 # Naming convention across all four containers/images: `shopassist-<role>`
 # - shopassist-database -> container `shopassist-postgres` (Postgres is the
 #   role; "shopassist-database" is the *project*, not the container)
-# - shopassist-model     -> containers `shopassist-ollama` (the LLM host)
-#   and `shopassist-model-bootstrap` (one-shot model-pull job)
-# - shopassist            -> container/image `shopassist-api`
-# - shopassist-client      -> container/image `shopassist-client` (same name,
+# - shopassist-model     -> containers `shopassist-ollama` (the LLM host),
+#   `shopassist-ollama-bootstrap` (one-shot chat/embedding model-pull job),
+#   `shopassist-classifier` (encoder-family sentiment/topic
+#   classification), and `shopassist-classifier-bootstrap` (one-shot
+#   classifier-model download)
+# - shopassist-service   -> container/image `shopassist-api` (the API is the
+#   role; "shopassist-service" is the *project*, not the container)
+# - shopassist-client     -> container/image `shopassist-client` (same name,
 #   project already named after its role)
 include:
   - path: ../shopassist-database/docker-compose.yml
   - path: ../shopassist-model/docker-compose.yml
-  - path: ../shopassist/docker-compose.yml
+  - path: ../shopassist-service/docker-compose.yml
   - path: ../shopassist-client/docker-compose.yml
 
 networks:
@@ -39,11 +43,21 @@ services:
   # --- attach the included services to the shared platform network -------
   # Listed explicitly (not relying on Compose to merge/append the original
   # network list) so the end result is unambiguous regardless of merge
-  # semantics: postgres/ollama/model-bootstrap/api/client all keep their
+  # semantics: postgres/ollama/ollama-bootstrap/api/client all keep their
   # own project's network (so `docker compose up` still works from inside
   # each one's own repo standalone) *and* join shopassist-platform (so
   # they can reach each other here).
   postgres:
+    # Pinned from the same three variables that build api's DATABASE_URL
+    # below, so the database and the thing connecting to it cannot disagree.
+    # Previously the container took its credentials from
+    # shopassist-database/.env while api's connection string used this
+    # repo's defaults - change the password over there and api simply
+    # failed to authenticate, with nothing pointing at why.
+    environment:
+      POSTGRES_DB: ${SHOPASSIST_DATABASE_NAME:-shopassist}
+      POSTGRES_USER: ${SHOPASSIST_DATABASE_USER:-shopassist}
+      POSTGRES_PASSWORD: ${SHOPASSIST_DATABASE_PASSWORD:-shopassist123}
     networks:
       - shopassist-network
       - shopassist-platform
@@ -53,42 +67,158 @@ services:
       - shopassist-model-network
       - shopassist-platform
 
-  model-bootstrap:
+  ollama-bootstrap:
     networks:
       - shopassist-model-network
       - shopassist-platform
 
-  # --- shopassist FastAPI backend -----------------------------------------
-  # Everything below overrides shopassist/docker-compose.yml's standalone
-  # defaults (host.docker.internal, no DATABASE_URL) with the real
-  # container-network addresses now that every service shares the
+  # classifier-bootstrap is deliberately not listed here: it's a one-shot
+  # download job nothing else needs to reach by name, so it doesn't need
+  # shopassist-platform — its own project network is enough.
+  classifier:
+    networks:
+      - shopassist-model-network
+      - shopassist-platform
+
+  # --- shopassist-service FastAPI backend ---------------------------------
+  # Everything below overrides shopassist-service/docker-compose.yml's
+  # standalone defaults (all host.docker.internal, since standalone it has
+  # no siblings to reach by name) with the real container-network addresses
+  # now that every service shares the
   # shopassist-platform network - Compose merges `environment` key-by-key,
   # so only the keys listed here actually change.
   api:
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
-      OLLAMA_API_BASE_URL: http://ollama:11434
-      # Must match shopassist-model/config/models.yaml - that file controls
-      # what actually gets pulled, this just tells shopassist what to ask
+      # Defaults to the bundled container. Override to point at an Ollama
+      # running natively on your machine (much faster on Apple Silicon /
+      # any GPU box, since the container is CPU-only) - but don't just set
+      # this by hand: use the docker-compose.local.yml overlay, which
+      # also stops the bundled container so it isn't holding 3GB of RAM and
+      # port 11434 for nothing. See the README's "Using a native Ollama".
+      OLLAMA_API_BASE_URL: ${OLLAMA_API_BASE_URL:-http://ollama:11434}
+      # Must match shopassist-model/config/generative.yaml - that file controls
+      # what actually gets pulled, this just tells shopassist-service what to ask
       # for. Change SHOPASSIST_MODEL in .env if you change that file's
       # default, or these two projects will disagree about the model name.
-      OLLAMA_ROUTER_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
-      OLLAMA_AGENT_REASON_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
-      OLLAMA_AGENT_INTERPRET_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
-      OLLAMA_GENERATIVE_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b-instruct}
-      OLLAMA_EMBEDDING_MODEL: nomic-embed-text
-      # shopassist and shopassist-database share the same schema
-      # (customers/items/sessions/orders/order_items, cust-1001/item-1001/
-      # ord-1001 IDs throughout) - see shopassist-database's
-      # docs/database-design.md - so this is a real, working connection,
-      # not a placeholder. Credentials match shopassist-database's own
-      # .env.example defaults; override SHOPASSIST_DATABASE_* here if you
-      # change those.
+      OLLAMA_ROUTER_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b}
+      OLLAMA_AGENT_REASON_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b}
+      OLLAMA_AGENT_INTERPRET_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b}
+      OLLAMA_GENERATIVE_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b}
+      # See the same key in shopassist-service/docker-compose.yml - runs on
+      # every chat request, must be a tag ollama-bootstrap really pulled.
+      OLLAMA_DECOMPOSER_MODEL: ${SHOPASSIST_MODEL:-llama3.2:3b}
+      # Set by ./scripts/up.sh in lms mode when LM Studio also serves
+      # embeddings; otherwise the Ollama tag ollama-bootstrap pulls.
+      OLLAMA_EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      # Where embeddings come from. FOLLOWS the chat endpoint above by
+      # default (nested substitution) - hardcoding ollama:11434 here was a
+      # bug: --native-llm doesn't start that container, so embeddings broke
+      # with 0 documents indexed while chat looked perfectly fine. Only the
+      # LM Studio overlay splits the two deliberately, because there the
+      # chat server genuinely has no 768-dim embedding model.
+      EMBEDDING_API_BASE_URL: ${EMBEDDING_API_BASE_URL:-${OLLAMA_API_BASE_URL:-http://ollama:11434}}
+      # How the local server does structured output: json_object (Ollama)
+      # or parse (LM Studio and other json_schema-only servers).
+      LOCAL_STRUCTURED_MODE: ${LOCAL_STRUCTURED_MODE:-json_object}
+      # shopassist-model's encoder-family classifier service. Called on the
+      # live chat path now (orchestrator steps 1.5 and 1.6: message
+      # sentiment and message topic, both feeding the final reply's tone
+      # and emphasis), as well as by the offline data-ingestion pipeline.
+      # Still no `depends_on: classifier` below, deliberately: both calls
+      # fail soft to label="unknown" and the reply is generated exactly as
+      # before, so a classifier that's down must not hold up `api`.
+      CLASSIFIER_API_BASE_URL: http://classifier:8000
+      # One knob drives both ends of the same request: the API's own
+      # wall-clock cap here, and the client's HTTP read timeout below.
+      # The client's must never be the smaller of the two, or it reports a
+      # timeout while the API is still happily working - see the client's
+      # own docker-compose.yml comment.
+      #
+      # 600, measured not guessed: on an 8-core CPU-only laptop with
+      # llama3.2:3b, a single-agent question ("where is my order X") took
+      # ~72s end to end, and a two-agent one ("...and what's your return
+      # policy") took ~318s - each extra sub-task adds several sequential
+      # LLM calls. 360 left only ~40s of headroom on that second case and
+      # nothing at all for a three-agent question.
+      CHAT_REQUEST_TIMEOUT_SECONDS: ${CHAT_TIMEOUT_SECONDS:-600}
+      # Operational knobs, platform-level rather than project metadata.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-30}
+      # --- pinned so the platform is the same on every machine -----------
+      # Compose resolves an `include:`d file's ${VAR} against THAT file's
+      # own directory .env - so without these lines, whatever happens to be
+      # in shopassist-service/.env (a personal Gemini key, API-key
+      # enforcement, Langfuse credentials) silently changed how the whole
+      # platform ran, and "works on my machine" meant literally that.
+      # Everything below is now decided here, reading only
+      # shopassist-devops/.env, and defaults to the fully-local,
+      # no-account-needed configuration.
+      #
+      # Want Gemini instead of the local model? Set GENERATIVE_PROVIDER and
+      # GEMINI_API_KEY in shopassist-devops/.env - not in a sibling repo's.
+      ROUTER_PROVIDER: ${ROUTER_PROVIDER:-local}
+      AGENT_REASON_PROVIDER: ${AGENT_REASON_PROVIDER:-local}
+      AGENT_INTERPRET_PROVIDER: ${AGENT_INTERPRET_PROVIDER:-local}
+      GENERATIVE_PROVIDER: ${GENERATIVE_PROVIDER:-local}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_API_BASE_URL: ${GEMINI_API_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      # One knob for every Gemini-routed role, exactly as SHOPASSIST_MODEL
+      # is one knob for the local ones. Only the roles whose *_PROVIDER is
+      # "gemini" actually read these; the rest ignore them harmlessly.
+      # gemini-2.5-flash rather than the code's -pro default for
+      # generative/decomposer: flash is markedly faster and cheaper, which
+      # is the whole reason to reach for Gemini on a demo.
+      GEMINI_ROUTER_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_AGENT_REASON_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_AGENT_INTERPRET_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_GENERATIVE_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_DECOMPOSER_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      # Optional LLM tracing - blank means "disabled", which is the
+      # default so nothing here needs a Langfuse account.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://us.cloud.langfuse.com}
+      # See the same key in shopassist-service/docker-compose.yml: without
+      # this, every request tried to export a trace to Langfuse's cloud and
+      # logged a 401 - noise, and an outbound call an offline platform
+      # shouldn't be making. Set false when you set the keys above.
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      # Dummy shared-secret auth. Off by default: the storefront ships a
+      # placeholder key, and enforcing without matching the two just locks
+      # a learner out of their own stack.
+      API_KEY: ${API_KEY:-}
+      API_KEY_ENFORCE: ${API_KEY_ENFORCE:-false}
+      # Required by shopassist-service - it has no fallback database of its
+      # own any more (neither the old SQLite dev DB nor a bundled postgres
+      # service; shopassist-database owns the schema, the seed data, and the
+      # container). Its standalone default addresses that database over
+      # host.docker.internal; this overrides it with the container name now
+      # that every service shares shopassist-platform, so there's no host
+      # round-trip. Credentials match shopassist-database's own .env.example
+      # defaults; override SHOPASSIST_DATABASE_* here if you change those.
       DATABASE_URL: postgresql://${SHOPASSIST_DATABASE_USER:-shopassist}:${SHOPASSIST_DATABASE_PASSWORD:-shopassist123}@postgres:5432/${SHOPASSIST_DATABASE_NAME:-shopassist}
     depends_on:
-      ollama:
-        condition: service_healthy
+      # ollama-bootstrap, not just ollama: the `ollama` healthcheck is
+      # `ollama list`, which succeeds as soon as the server accepts
+      # connections - i.e. while the model store is still empty. Waiting
+      # only on that let `api` start before any model had been pulled, so
+      # the first chat request 404'd with "model not found" until the
+      # download happened to finish. `service_completed_successfully` waits
+      # for the one-shot pull job to exit 0 instead, which also implies
+      # ollama is healthy (bootstrap itself depends on that).
+      ollama-bootstrap:
+        condition: service_completed_successfully
+        # required: false is what lets ONE compose file serve all three LLM
+        # modes. In local/lms mode the script starts the stack with
+        # `--scale ollama=0 --scale ollama-bootstrap=0`, and without this
+        # flag Compose would refuse to start `api` at all because a service
+        # it depends on isn't running. With it, the dependency is honoured
+        # when the container is there and skipped when it isn't - so no
+        # overlay file has to exist purely to delete this block.
+        required: false
       postgres:
         condition: service_healthy
     networks:
@@ -103,6 +233,9 @@ services:
       - "${WEB_PORT:-8501}:8501"
     environment:
       API_BASE_URL: http://api:8000
+      # Same variable as api's CHAT_REQUEST_TIMEOUT_SECONDS above, on
+      # purpose - see the comment there.
+      TIMEOUT: ${CHAT_TIMEOUT_SECONDS:-600}
       APP_TITLE: ${APP_TITLE:-IISc Alumni Store}
       ENABLE_CHATBOT: "true"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

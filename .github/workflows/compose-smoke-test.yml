@@ -8,11 +8,9 @@ name: Compose smoke test
 # own CI (if any) can't see since each only tests itself in isolation.
 #
 # Repo owners are configurable via repository variables (Settings ->
-# Secrets and variables -> Actions -> Variables) since they aren't
-# consistent today — shopassist currently lives under a different owner
-# than the other three. Set these if that changes, or if you fork the
-# whole platform:
-#   SHOPASSIST_DATABASE_REPO, SHOPASSIST_MODEL_REPO, SHOPASSIST_REPO,
+# Secrets and variables -> Actions -> Variables). Set these if you fork the
+# whole platform, or if any repo moves owner:
+#   SHOPASSIST_DATABASE_REPO, SHOPASSIST_MODEL_REPO, SHOPASSIST_SERVICE_REPO,
 #   SHOPASSIST_CLIENT_REPO
 #
 # If any of the four repos are private, cross-repo checkout also needs a
@@ -29,7 +27,7 @@ on:
 env:
   SHOPASSIST_DATABASE_REPO: ${{ vars.SHOPASSIST_DATABASE_REPO || 'bookbee/shopassist-database' }}
   SHOPASSIST_MODEL_REPO: ${{ vars.SHOPASSIST_MODEL_REPO || 'bookbee/shopassist-model' }}
-  SHOPASSIST_REPO: ${{ vars.SHOPASSIST_REPO || 'SureshKalle/shopassist' }}
+  SHOPASSIST_SERVICE_REPO: ${{ vars.SHOPASSIST_SERVICE_REPO || 'bookbee/shopassist-service' }}
   SHOPASSIST_CLIENT_REPO: ${{ vars.SHOPASSIST_CLIENT_REPO || 'bookbee/shopassist-client' }}
 
 jobs:
@@ -55,11 +53,11 @@ jobs:
           path: shopassist-model
           token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Checkout shopassist
+      - name: Checkout shopassist-service
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.SHOPASSIST_REPO }}
-          path: shopassist
+          repository: ${{ env.SHOPASSIST_SERVICE_REPO }}
+          path: shopassist-service
           token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Checkout shopassist-client
@@ -82,9 +80,6 @@ jobs:
       - name: Validate merged compose config
         working-directory: shopassist-devops
         run: docker compose config --quiet
-
-      - name: Create external Postgres volume
-        run: docker volume create shopassist-postgres-data
 
       - name: Bring the platform up
         working-directory: shopassist-devops
@@ -123,7 +118,7 @@ jobs:
           set -e
           response=$(curl -sf -X POST http://localhost:8000/api/v1/chat \
             -H "Content-Type: application/json" \
-            -d '{"user_id": "cust-1001", "text": "hello"}')
+            -d '{"user_id": "alum-1001", "text": "hello"}')
           echo "$response"
           echo "$response" | grep -q response_text
 
