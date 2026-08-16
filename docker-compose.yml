@@ -163,6 +163,13 @@ services:
       AGENT_INTERPRET_PROVIDER: ${AGENT_INTERPRET_PROVIDER:-local}
       GENERATIVE_PROVIDER: ${GENERATIVE_PROVIDER:-local}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      # Was missing while GEMINI_DECOMPOSER_MODEL below was already here -
+      # so the decomposer's model was configurable but its provider wasn't,
+      # and that model line could never take effect. Decomposition runs on
+      # every chat request, so without this an all-Gemini platform still had
+      # to reach a local LLM once per message; setting all six to gemini now
+      # genuinely removes Ollama/LM Studio from the request path.
+      DECOMPOSER_PROVIDER: ${DECOMPOSER_PROVIDER:-local}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_API_BASE_URL: ${GEMINI_API_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
       # One knob for every Gemini-routed role, exactly as SHOPASSIST_MODEL

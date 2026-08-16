@@ -89,22 +89,41 @@ shopassist-ollama-bootstrap     built      shopassist-model (model pull job)
 
 ## Prerequisites
 
-- **Docker Desktop** (or Docker Engine + Compose v2 on Linux) — the only
-  manual install. You do **not** need Python, Postgres, Ollama, an
-  NVIDIA GPU, or any API key on your machine. Everything runs in
-  containers.
+- **Docker Desktop 4.22+** (or Docker Engine + **Compose v2.20+** on
+  Linux) — the only manual install. You do **not** need Python, Postgres,
+  Ollama, an NVIDIA GPU, or any API key on your machine. Everything runs
+  in containers.
+
+  The version floor is real, not cautious rounding: this repo's
+  `docker-compose.yml` uses the top-level `include:` element and
+  `depends_on: { required: false }`, both of which landed in Compose
+  2.20. An older Compose doesn't degrade — it fails while parsing the
+  file, before anything starts. Check with `docker compose version`.
 - **At least 8GB of RAM allocated to Docker**, on a machine with 16GB
   total. This is the single most common cause of a stack that builds fine
   and then dies mid-conversation: the language model alone wants ~4GB
   resident. Check and raise it in **Docker Desktop → Settings →
   Resources → Memory**; on Linux, Docker uses host RAM directly and
   there's nothing to set.
+
+  The compose files cap three services (`ollama` 6g, `classifier` 4g,
+  `api` 2g). Those are ceilings, not reservations — they don't all run at
+  peak together — but 8GB is the point below which the model starts
+  getting killed mid-reply.
 - **~15GB free disk**, and ~8–10GB of downloads on the first run only
   (images, the language model, and the classification models — itemised
   under [Quick start](#quick-start)).
 - An internet connection **for the first run only** — it downloads images
-  and models. After that the platform runs fully offline.
-- All five repos cloned as **siblings**:
+  and models. After that the platform runs fully offline. It reaches
+  Docker Hub, **`download.pytorch.org`** (the classifier's CPU-only torch
+  wheel), **`huggingface.co`** (the two classification checkpoints), and
+  PyPI. Worth knowing if you're building behind a restrictive proxy —
+  Docker Hub alone isn't enough.
+- **Host ports free**: `5432` (Postgres), `8000` (API), `8100`
+  (classifier), `8501` (storefront), `11434` (Ollama). Plus `9090`/`3000`
+  if you add the observability overlay, and `1234` for LM Studio. The
+  first two are remappable via `API_PORT`/`WEB_PORT` in `.env`.
+- **`git`**, to clone the five repos as **siblings**:
 
   ```text
   some-folder/
@@ -114,6 +133,61 @@ shopassist-ollama-bootstrap     built      shopassist-model (model pull job)
   ├── shopassist-service/
   └── shopassist-client/
   ```
+
+- For `./scripts/up.sh` itself: **bash and curl**. One path also needs
+  **`python3` on the host** — the 768-dimension embedding probe that runs
+  only in `lms` mode with `LMSTUDIO_EMBEDDING_MODEL` set. Every other
+  mode needs neither.
+
+### What each project pulls or builds
+
+Nothing in this table is something you install by hand — it's what the
+first `docker compose up --build` fetches, listed so you can pre-seed a
+machine, audit the supply chain, or work out what a restricted network
+will block.
+
+| Project | Base / pulled images | Installed into the image | Downloaded at runtime |
+| --- | --- | --- | --- |
+| `shopassist-database` | `pgvector/pgvector:pg17` | — (no build) | — |
+| `shopassist-model` | `ollama/ollama:latest`, `python:3.12-slim` ×2 | **classifier**: CPU-only `torch` (from PyTorch's own index), transformers, fastapi, uvicorn[standard], sentencepiece, protobuf, pydantic, PyYAML, prometheus-fastapi-instrumentator · **bootstrap**: requests, PyYAML | `llama3.2:3b` + `nomic-embed-text` into `shopassist-ollama-models`; `nlptown/bert-base-multilingual-uncased-sentiment` + `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` into `shopassist-classifier-models` |
+| `shopassist-service` | `python:3.12-slim` | fastapi, uvicorn[standard], pydantic, python-dotenv, openai, SQLAlchemy, psycopg2-binary, requests, faiss-cpu, numpy, pypdf, reportlab, langchain-text-splitters, langfuse, prometheus-fastapi-instrumentator — all **exact-pinned**, see that repo's `requirements.txt` for why | — |
+| `shopassist-client` | `python:3.12-slim` | streamlit, requests, PyYAML, python-dotenv, Pillow | — |
+| `shopassist-devops` | — | — (owns no application code) | — |
+
+Two optional extras, neither part of a default run: the observability
+overlay adds `prom/prometheus` and `grafana/grafana` (see
+[below](#optional-observability-prometheus--grafana)), and
+`shopassist-database`'s `rag-init` profile installs psycopg2-binary,
+openai, pypdf and openpyxl into a throwaway `python:3.12-slim` —
+see the note on it in [What you're *not* running](#what-youre-not-running).
+
+### Running a project outside Docker
+
+Only relevant if you're developing on one project directly rather than
+running the platform. Each needs **Python 3.12** and its own
+`requirements.txt`; `shopassist-service` additionally has
+`evaluation/requirements-eval.txt` (scikit-learn, numpy) for the offline
+eval harness.
+
+One gap to know about: `shopassist-model/classifier/requirements.txt`
+does **not** list `torch`. That's deliberate for the image — its
+`Dockerfile` installs the CPU-only wheel from PyTorch's own index first,
+so pip doesn't select the multi-GB CUDA build from PyPI — but it means a
+bare `pip install -r requirements.txt` on your machine gives you a
+`transformers` that can't load a model. Install torch first, the same way
+the Dockerfile does.
+
+### What you're *not* running
+
+`shopassist-database` ships pgvector, a `VECTOR(768) document_chunks`
+table, `postgres/rag_sources/`, and a `rag-init` profile — none of which
+the running platform touches. The API's retrieval is a FAISS index built
+in-process at startup from `shopassist-service/docs/*.pdf`; nothing in
+the service ever queries `document_chunks`. So **don't run `docker
+compose --profile rag up rag-init`** as part of bringing the platform
+up: it's a separate, standalone exploration of the pgvector path, it
+expects an Ollama reachable on `host.docker.internal`, and it adds
+nothing to what the storefront answers with.
 
 ## Quick start
 

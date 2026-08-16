@@ -107,7 +107,20 @@ switch ($LlmMode) {
     }
     "lms"    {
         $env:OLLAMA_API_BASE_URL = "http://host.docker.internal:$LmsPort"
+        # Embeddings default to the bundled Ollama container, and must be set
+        # EXPLICITLY: docker-compose.yml defaults EMBEDDING_API_BASE_URL to
+        # ${OLLAMA_API_BASE_URL:-...}, which the line above just repointed at
+        # LM Studio - so leaving it unset asked LM Studio for
+        # "nomic-embed-text", a name only Ollama uses. That 404'd every
+        # embedding: 0 documents indexed and every policy question answered
+        # from nothing, while chat looked perfectly fine. The
+        # LMSTUDIO_EMBEDDING_MODEL branch below overrides this.
+        $env:EMBEDDING_API_BASE_URL = "http://ollama:11434"
+        # LM Studio rejects response_format={"type":"json_object"}; it wants a
+        # JSON schema, which is what the OpenAI SDK's .parse() sends.
         $env:LOCAL_STRUCTURED_MODE = "parse"
+        # SHOPASSIST_MODEL is what every OLLAMA_<ROLE>_MODEL defaults to, so
+        # setting it here covers all five chat roles at once.
         $env:SHOPASSIST_MODEL = $env:LMSTUDIO_MODEL
     }
     default  {
@@ -164,7 +177,40 @@ if ($LmStudio) {
         $ids | ForEach-Object { Write-Host "         $_" -ForegroundColor Red }
         exit 1
     }
-    Write-Host "    LM Studio OK (serving '$($env:LMSTUDIO_MODEL)'); embeddings stay on the bundled Ollama"
+    Write-Host "    LM Studio OK (serving '$($env:LMSTUDIO_MODEL)')"
+
+    # Optional: embeddings on LM Studio too. Checked hard, because the failure
+    # mode is silent - a wrong dimension doesn't error, it just makes every
+    # RAG lookup meaningless and poisons the stored vectors.
+    if ($env:LMSTUDIO_EMBEDDING_MODEL) {
+        if ($ids -notcontains $env:LMSTUDIO_EMBEDDING_MODEL) {
+            Write-Host "Error: LM Studio is not serving embedding model '$($env:LMSTUDIO_EMBEDDING_MODEL)'. It has:" -ForegroundColor Red
+            $ids | ForEach-Object { Write-Host "         $_" -ForegroundColor Red }
+            exit 1
+        }
+        $dims = $null
+        try {
+            $body = @{ model = $env:LMSTUDIO_EMBEDDING_MODEL; input = "dimension probe" } | ConvertTo-Json
+            $probe = Invoke-RestMethod -Uri "http://localhost:$port/v1/embeddings" -Method Post `
+                        -ContentType "application/json" -Body $body -TimeoutSec 60
+            $dims = $probe.data[0].embedding.Count
+        } catch { }
+        if ($dims -ne 768) {
+            $got = if ($dims) { $dims } else { "no" }
+            Write-Host "Error: '$($env:LMSTUDIO_EMBEDDING_MODEL)' returned $got dimensions, but this project needs exactly 768." -ForegroundColor Red
+            Write-Host "       768 is fixed by services/rag.py's FAISS index and shopassist-database's VECTOR(768)" -ForegroundColor Red
+            Write-Host "       column. Load a 768-dim model (e.g. nomic-embed-text-v1.5), or unset" -ForegroundColor Red
+            Write-Host "       LMSTUDIO_EMBEDDING_MODEL to keep embeddings on the bundled Ollama." -ForegroundColor Red
+            exit 1
+        }
+        $env:EMBEDDING_API_BASE_URL = "http://host.docker.internal:$port"
+        $env:EMBEDDING_MODEL = $env:LMSTUDIO_EMBEDDING_MODEL
+        $ScaleArgs = @("--scale","ollama=0","--scale","ollama-bootstrap=0")
+        Write-Host "    embeddings also on LM Studio ('$($env:LMSTUDIO_EMBEDDING_MODEL)', 768 dims verified)"
+        Write-Host "    the bundled Ollama container will NOT be started - nothing needs it"
+    } else {
+        Write-Host "    embeddings stay on the bundled Ollama (set LMSTUDIO_EMBEDDING_MODEL to change)"
+    }
 }
 
 Write-Host "==> Starting the platform (first run pulls/builds images and downloads an LLM - can take several minutes) ..."
