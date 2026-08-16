@@ -52,12 +52,12 @@ at the bottom for what each term above means.
 
 ## The four projects
 
-| Project (repo)        | Role                | Container(s) / image                                                                                           | Starts...                             |
-|-----------------------|---------------------|----------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `shopassist-database` | Postgres            | `shopassist-postgres`                                                                                          | first, no dependencies                |
+| Project (repo)          | Role                | Container(s) / image                                                                                                   | Starts...                             |
+| ----------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `shopassist-database` | Postgres            | `shopassist-postgres`                                                                                                | first, no dependencies                |
 | `shopassist-model`    | Ollama + classifier | `shopassist-ollama`, `shopassist-ollama-bootstrap`, `shopassist-classifier`, `shopassist-classifier-bootstrap` | first, no dependencies                |
-| `shopassist-service`  | FastAPI backend     | `shopassist-api`                                                                                               | after Ollama and Postgres are healthy |
-| `shopassist-client`   | storefront client   | `shopassist-client`                                                                                            | after the API is healthy              |
+| `shopassist-service`  | FastAPI backend     | `shopassist-api`                                                                                                     | after Ollama and Postgres are healthy |
+| `shopassist-client`   | storefront client   | `shopassist-client`                                                                                                  | after the API is healthy              |
 
 **Naming**: every container and locally-built image is
 `shopassist-<role>`, not `shopassist-<repo-name>` — that's what you
@@ -133,7 +133,6 @@ shopassist-ollama-bootstrap     built      shopassist-model (model pull job)
   ├── shopassist-service/
   └── shopassist-client/
   ```
-
 - For `./scripts/up.sh` itself: **bash and curl**. One path also needs
   **`python3` on the host** — the 768-dimension embedding probe that runs
   only in `lms` mode with `LMSTUDIO_EMBEDDING_MODEL` set. Every other
@@ -146,20 +145,20 @@ first `docker compose up --build` fetches, listed so you can pre-seed a
 machine, audit the supply chain, or work out what a restricted network
 will block.
 
-| Project | Base / pulled images | Installed into the image | Downloaded at runtime |
-| --- | --- | --- | --- |
-| `shopassist-database` | `pgvector/pgvector:pg17` | — (no build) | — |
-| `shopassist-model` | `ollama/ollama:latest`, `python:3.12-slim` ×2 | **classifier**: CPU-only `torch` (from PyTorch's own index), transformers, fastapi, uvicorn[standard], sentencepiece, protobuf, pydantic, PyYAML, prometheus-fastapi-instrumentator · **bootstrap**: requests, PyYAML | `llama3.2:3b` + `nomic-embed-text` into `shopassist-ollama-models`; `nlptown/bert-base-multilingual-uncased-sentiment` + `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` into `shopassist-classifier-models` |
-| `shopassist-service` | `python:3.12-slim` | fastapi, uvicorn[standard], pydantic, python-dotenv, openai, SQLAlchemy, psycopg2-binary, requests, faiss-cpu, numpy, pypdf, reportlab, langchain-text-splitters, langfuse, prometheus-fastapi-instrumentator — all **exact-pinned**, see that repo's `requirements.txt` for why | — |
-| `shopassist-client` | `python:3.12-slim` | streamlit, requests, PyYAML, python-dotenv, Pillow | — |
-| `shopassist-devops` | — | — (owns no application code) | — |
+| Project                 | Base / pulled images                               | Installed into the image                                                                                                                                                                                                                                                                 | Downloaded at runtime                                                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shopassist-database` | `pgvector/pgvector:pg17`                         | — (no build)                                                                                                                                                                                                                                                                            | —                                                                                                                                                                                                                    |
+| `shopassist-model`    | `ollama/ollama:latest`, `python:3.12-slim` ×2 | **classifier**: CPU-only `torch` (from PyTorch's own index), transformers, fastapi, uvicorn[standard], sentencepiece, protobuf, pydantic, PyYAML, prometheus-fastapi-instrumentator · **bootstrap**: requests, PyYAML                                                     | `llama3.2:3b` + `nomic-embed-text` into `shopassist-ollama-models`; `nlptown/bert-base-multilingual-uncased-sentiment` + `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` into `shopassist-classifier-models` |
+| `shopassist-service`  | `python:3.12-slim`                               | fastapi, uvicorn[standard], pydantic, python-dotenv, openai, SQLAlchemy, psycopg2-binary, requests, faiss-cpu, numpy, pypdf, reportlab, langchain-text-splitters, langfuse, prometheus-fastapi-instrumentator — all**exact-pinned**, see that repo's `requirements.txt` for why | —                                                                                                                                                                                                                    |
+| `shopassist-client`   | `python:3.12-slim`                               | streamlit, requests, PyYAML, python-dotenv, Pillow                                                                                                                                                                                                                                       | —                                                                                                                                                                                                                    |
+| `shopassist-devops`   | —                                                 | — (owns no application code)                                                                                                                                                                                                                                                            | —                                                                                                                                                                                                                    |
 
 Two optional extras, neither part of a default run: the observability
 overlay adds `prom/prometheus` and `grafana/grafana` (see
 [below](#optional-observability-prometheus--grafana)), and
 `shopassist-database`'s `rag-init` profile installs psycopg2-binary,
 openai, pypdf and openpyxl into a throwaway `python:3.12-slim` —
-see the note on it in [What you're *not* running](#what-youre-not-running).
+see the note on it in [What you&#39;re *not* running](#what-youre-not-running).
 
 ### Running a project outside Docker
 
@@ -183,8 +182,7 @@ the Dockerfile does.
 table, `postgres/rag_sources/`, and a `rag-init` profile — none of which
 the running platform touches. The API's retrieval is a FAISS index built
 in-process at startup from `shopassist-service/docs/*.pdf`; nothing in
-the service ever queries `document_chunks`. So **don't run `docker
-compose --profile rag up rag-init`** as part of bringing the platform
+the service ever queries `document_chunks`. So **don't run `docker compose --profile rag up rag-init`** as part of bringing the platform
 up: it's a separate, standalone exploration of the pgvector path, it
 expects an Ollama reachable on `host.docker.internal`, and it adds
 nothing to what the storefront answers with.
@@ -192,11 +190,11 @@ nothing to what the storefront answers with.
 ## Quick start
 
 ```bash
-git clone <shopassist-devops-url>
-git clone <shopassist-database-url>
-git clone <shopassist-model-url>
-git clone <shopassist-service-url>
-git clone <shopassist-client-url>
+git clone https://github.com/bookbee/shopassist-devops.git
+git clone https://github.com/bookbee/shopassist-database.git
+git clone https://github.com/bookbee/shopassist-model.git
+git clone https://github.com/bookbee/shopassist-service.git
+git clone https://github.com/bookbee/shopassist-client.git
 cd shopassist-devops
 
 ./scripts/up.sh          # macOS / Linux
@@ -207,8 +205,7 @@ The script checks all sibling projects exist, checks Docker is running,
 creates `.env` here from `.env.example` if it's missing, then runs
 `docker compose up -d --build`.
 
-It's a convenience, not a prerequisite — plain `docker compose up -d
---build` from this directory does the same thing. Every setting has a
+It's a convenience, not a prerequisite — plain `docker compose up -d --build` from this directory does the same thing. Every setting has a
 working default baked into the compose files, so **no `.env` file
 anywhere is required to start.** (Each project also ships its own
 `.env.example`, but those matter only when running that project
@@ -218,13 +215,13 @@ standalone — see [Configuration](#configuration-edit-env-here-not-in-a-sibling
 of downloads in total**, and anywhere from 15 minutes on a fast
 connection to well over an hour on a slow one:
 
-| What | Size |
-| --- | --- |
-| `ollama/ollama` image | ~2.5–2.8GB |
-| `llama3.2:3b` chat model + `nomic-embed-text` | ~2.2GB |
-| encoder classification models (Hugging Face) | ~1.2GB |
-| `pgvector/pgvector:pg17` image | ~0.5GB |
-| Python base images + pip dependencies for the three built images | ~2GB |
+| What                                                             | Size        |
+| ---------------------------------------------------------------- | ----------- |
+| `ollama/ollama` image                                          | ~2.5–2.8GB |
+| `llama3.2:3b` chat model + `nomic-embed-text`                | ~2.2GB      |
+| encoder classification models (Hugging Face)                     | ~1.2GB      |
+| `pgvector/pgvector:pg17` image                                 | ~0.5GB      |
+| Python base images + pip dependencies for the three built images | ~2GB        |
 
 Only the first run pays this. Everything lands in named volumes and the
 image cache, so later starts take seconds and need no network at all.
@@ -238,9 +235,9 @@ docker compose ps                          # health of every service
 
 Once `shopassist-client` shows `healthy`:
 
-- Storefront — <http://localhost:8501>
-- API docs — <http://localhost:8000/docs>
-- Ollama — <http://localhost:11434>
+- Storefront — [http://localhost:8501](http://localhost:8501)
+- API docs — [http://localhost:8000/docs](http://localhost:8000/docs)
+- Ollama — [http://localhost:11434](http://localhost:11434)
 
 Stop it:
 
@@ -258,11 +255,11 @@ the internet once images are built and the model is pulled.
 
 Three ways to run the language model, one switch:
 
-| Mode | What runs the model | Extra install | Speed |
-| --- | --- | --- | --- |
-| `docker` **(default)** | the bundled `ollama` container | **none** | slowest — CPU-only |
-| `local` | an Ollama installed on this machine | Ollama | fast — uses your GPU |
-| `lms` | a model served by LM Studio | LM Studio | fast — uses your GPU |
+| Mode                           | What runs the model                 | Extra install  | Speed                 |
+| ------------------------------ | ----------------------------------- | -------------- | --------------------- |
+| `docker` **(default)** | the bundled`ollama` container     | **none** | slowest — CPU-only   |
+| `local`                      | an Ollama installed on this machine | Ollama         | fast — uses your GPU |
+| `lms`                        | a model served by LM Studio         | LM Studio      | fast — uses your GPU |
 
 **`docker` is the default**, and it's what a fresh clone runs with no
 configuration at all — the only mode that needs nothing installed beyond
@@ -330,11 +327,11 @@ flags still overriding for a single run. See
 Measured on the same machine, same models, same question ("where is my
 order ord-1001, and what is your return policy" — a two-agent query):
 
-| | Bundled container (CPU) | Native Ollama (GPU) | Hybrid: Gemini for the reply |
-| --- | --- | --- | --- |
-| One two-agent chat turn | ~318s | ~32s | **~17s** |
-| `api` warm-up before healthy | ~90s | ~10s | ~10s |
-| Needs a key / internet | no | no | yes |
+|                                | Bundled container (CPU) | Native Ollama (GPU) | Hybrid: Gemini for the reply |
+| ------------------------------ | ----------------------- | ------------------- | ---------------------------- |
+| One two-agent chat turn        | ~318s                   | ~32s                | **~17s**               |
+| `api` warm-up before healthy | ~90s                    | ~10s                | ~10s                         |
+| Needs a key / internet         | no                      | no                  | yes                          |
 
 (Hybrid = native Ollama for routing and reasoning, `GENERATIVE_PROVIDER=gemini`
 for the customer-facing reply — see
@@ -418,10 +415,10 @@ collapsing the whole turn into the generic "unexpected error" reply.
 
 `LOCAL_STRUCTURED_MODE` handles this, and the overlay sets it for you:
 
-| Local server | `LOCAL_STRUCTURED_MODE` | Mechanism |
-| --- | --- | --- |
-| Ollama | `json_object` (default) | `response_format={"type":"json_object"}` |
-| LM Studio, and other json_schema-only servers | `parse` | OpenAI SDK's `.parse()`, which sends a JSON schema |
+| Local server                                  | `LOCAL_STRUCTURED_MODE` | Mechanism                                           |
+| --------------------------------------------- | ------------------------- | --------------------------------------------------- |
+| Ollama                                        | `json_object` (default) | `response_format={"type":"json_object"}`          |
+| LM Studio, and other json_schema-only servers | `parse`                 | OpenAI SDK's`.parse()`, which sends a JSON schema |
 
 `parse` is the same path Gemini already used, so this reuses existing code
 rather than adding a third mechanism. If you point the platform at some
@@ -455,10 +452,10 @@ chunks it can't embed.
 
 So the overlay splits the two:
 
-| Role | Endpoint |
-| --- | --- |
-| router, decomposer, agent reasoning, generative | LM Studio, `host.docker.internal:1234` |
-| embeddings | bundled `ollama` container, `ollama:11434` |
+| Role                                            | Endpoint                                      |
+| ----------------------------------------------- | --------------------------------------------- |
+| router, decomposer, agent reasoning, generative | LM Studio,`host.docker.internal:1234`       |
+| embeddings                                      | bundled`ollama` container, `ollama:11434` |
 
 They coexist happily — different ports, no conflict. The startup log shows
 both, so you can always confirm what's actually wired:
@@ -479,14 +476,13 @@ failing fast on.
 
 Only if embeddings still run on it. `--lms` decides for you:
 
-| `LMSTUDIO_EMBEDDING_MODEL` | Embeddings | `ollama` container | Containers |
-| --- | --- | --- | --- |
-| unset | bundled Ollama | **started** — it's serving them | 5 |
-| set | LM Studio | **not started** | 4 |
+| `LMSTUDIO_EMBEDDING_MODEL` | Embeddings     | `ollama` container                   | Containers |
+| ---------------------------- | -------------- | -------------------------------------- | ---------- |
+| unset                        | bundled Ollama | **started** — it's serving them | 5          |
+| set                          | LM Studio      | **not started**                  | 4          |
 
 So if you picked `--lms` and still see `shopassist-ollama` running, that's
-almost certainly why: it's doing the embeddings. `docker logs
-shopassist-api | grep "LLMInferenceService ready"` shows
+almost certainly why: it's doing the embeddings. `docker logs shopassist-api | grep "LLMInferenceService ready"` shows
 `embedding_endpoint=http://ollama:11434` when that's the case.
 
 The other way to see it running is invoking `docker compose up -d` by
@@ -518,13 +514,13 @@ validates the model ids and the 768-dim requirement first.
 
 ### Which one should you use?
 
-| | Bundled Ollama | Native Ollama | LM Studio | Gemini |
-| --- | --- | --- | --- | --- |
-| Extra install | none | Ollama | LM Studio | none |
-| Needs internet | first run only | first run only | first run only | every call |
-| Needs an API key | no | no | no | yes |
-| Speed on a laptop | slowest | fast | fast | fastest |
-| Pick your own model | via `config/generative.yaml` | `ollama pull` | anything in LM Studio | Gemini family only |
+|                     | Bundled Ollama                | Native Ollama   | LM Studio             | Gemini             |
+| ------------------- | ----------------------------- | --------------- | --------------------- | ------------------ |
+| Extra install       | none                          | Ollama          | LM Studio             | none               |
+| Needs internet      | first run only                | first run only  | first run only        | every call         |
+| Needs an API key    | no                            | no              | no                    | yes                |
+| Speed on a laptop   | slowest                       | fast            | fast                  | fastest            |
+| Pick your own model | via`config/generative.yaml` | `ollama pull` | anything in LM Studio | Gemini family only |
 
 They're not exclusive: the fastest setup measured here is LM Studio or
 native Ollama for the frequent routing/reasoning steps, with
@@ -541,14 +537,14 @@ plane**: every setting that describes how the pieces are wired together,
 or which external service they use, is decided here and pushed down into
 the containers.
 
-| Lives in `shopassist-devops` (control plane) | Lives in each project (its own metadata) |
-| --- | --- |
-| Which LLM provider each role uses, and the Gemini key | The service's `APP_TITLE`/`APP_VERSION`, its CORS origins |
-| Model tags — `SHOPASSIST_MODEL`, `GEMINI_MODEL` | Which models exist at all: `shopassist-model/config/*.yaml` |
-| Where Ollama, Postgres and the classifier live | The database schema and seed data |
-| Database credentials | The storefront's palette and copy (`config.yaml`) |
-| Timeouts, rate limit, log level, published ports | Each project's `Dockerfile` and its own compose file |
-| Langfuse credentials and tracing on/off | — |
+| Lives in`shopassist-devops` (control plane)         | Lives in each project (its own metadata)                     |
+| ----------------------------------------------------- | ------------------------------------------------------------ |
+| Which LLM provider each role uses, and the Gemini key | The service's`APP_TITLE`/`APP_VERSION`, its CORS origins |
+| Model tags —`SHOPASSIST_MODEL`, `GEMINI_MODEL`   | Which models exist at all:`shopassist-model/config/*.yaml` |
+| Where Ollama, Postgres and the classifier live        | The database schema and seed data                            |
+| Database credentials                                  | The storefront's palette and copy (`config.yaml`)          |
+| Timeouts, rate limit, log level, published ports      | Each project's`Dockerfile` and its own compose file        |
+| Langfuse credentials and tracing on/off               | —                                                           |
 
 The rule of thumb: **if two projects have to agree on it, it belongs
 here.** A model tag, a password, or a timeout that only one side changes
@@ -600,10 +596,10 @@ docker compose -f docker-compose.yml \
                 -f observability/docker-compose.observability.yml up -d
 ```
 
-- Prometheus — <http://localhost:9090> — scrapes `GET /metrics` on
+- Prometheus — [http://localhost:9090](http://localhost:9090) — scrapes `GET /metrics` on
   `shopassist-service`'s `api` and `shopassist-model`'s `classifier` (both expose
   it via `prometheus-fastapi-instrumentator`).
-- Grafana — <http://localhost:3000> (default `admin`/`admin`, override via
+- Grafana — [http://localhost:3000](http://localhost:3000) (default `admin`/`admin`, override via
   `GRAFANA_ADMIN_PASSWORD`) — the Prometheus datasource and a "ShopAssist
   Overview" dashboard (request rate, p95 latency, 5xx rate, all split by
   service) are provisioned automatically, nothing to click through.
@@ -619,8 +615,7 @@ once this base layer earns its keep.
 ## Why `include:`, not one giant compose file
 
 Each project keeps owning its `docker-compose.yml` and stays
-independently runnable on its own — `cd shopassist-database && docker
-compose up` etc. all still work standalone, talking to dependencies over
+independently runnable on its own — `cd shopassist-database && docker compose up` etc. all still work standalone, talking to dependencies over
 `localhost`/`host.docker.internal`. This repo just references those four
 files by path and layers a shared network + container-network URLs
 (`postgres:5432`, `ollama:11434`, `api:8000`) on top, so nothing here
@@ -648,7 +643,6 @@ network — see the comments in `docker-compose.yml` for exactly which
   curl -so /dev/null -w '%{http_code}\n' \
     https://registry.ollama.ai/v2/library/llama3.2/manifests/3b     # 200 = real tag
   ```
-
 - **Postgres credentials** used to be duplicated by convention and
   drifted easily — the container took them from `shopassist-database`'s
   `.env` while `api`'s connection string used this repo's defaults, so
@@ -704,10 +698,8 @@ see their READMEs.
 - **A project is "missing" per the startup script** — clone it as a
   sibling of `shopassist-devops`, not inside it.
 - **`api` never goes healthy** — check `docker compose logs api`; often
-  it's waiting on `ollama` or `postgres`. Check `docker compose logs
-  ollama-bootstrap` and `docker compose logs postgres` first.
-- **`api` is healthy but `database_reachable: false`** — check `docker
-  compose logs postgres`, and confirm `shopassist-database/.env`'s
+  it's waiting on `ollama` or `postgres`. Check `docker compose logs ollama-bootstrap` and `docker compose logs postgres` first.
+- **`api` is healthy but `database_reachable: false`** — check `docker compose logs postgres`, and confirm `shopassist-database/.env`'s
   credentials match `api`'s `DATABASE_URL` (see "What's honestly not
   wired up yet").
 - **`client` never goes healthy** — it depends on `api` first; check
@@ -751,12 +743,10 @@ see their READMEs.
   Otherwise route just the customer-facing step to Gemini.
 - **Switched to `--local` and now policy questions return nothing** —
   your native Ollama is missing `nomic-embed-text`. Chat still works, but
-  every RAG lookup silently retrieves nothing. `ollama pull
-  nomic-embed-text`, then restart.
+  every RAG lookup silently retrieves nothing. `ollama pull nomic-embed-text`, then restart.
 - **Two Ollamas fighting over port 11434** — don't set
   `OLLAMA_API_BASE_URL` by hand while the bundled container is still
-  running; use the overlay, which stops it. `lsof -nP -iTCP:11434
-  -sTCP:LISTEN` shows who currently holds the port.
+  running; use the overlay, which stops it. `lsof -nP -iTCP:11434 -sTCP:LISTEN` shows who currently holds the port.
 - **It behaves differently on your machine than a colleague's** — check
   for a stray `.env` in a *sibling* repo. Those are read when that project
   runs standalone; the platform pins its own values (see
@@ -773,45 +763,45 @@ roughly easiest-first within each group.
 
 ### The language model itself
 
-| Concept | Here | Read more |
-| --- | --- | --- |
-| **Large Language Model (LLM)** | `llama3.2:3b` — Meta's 3-billion-parameter model, ~2GB, running on your CPU | [Hugging Face LLM course](https://huggingface.co/learn/llm-course) |
-| **Transformer** | The architecture every model here is built on | ["Attention Is All You Need"](https://arxiv.org/abs/1706.03762) (the 2017 paper that started it) |
-| **Running models locally** | The `ollama` container | [Ollama](https://github.com/ollama/ollama) · [model library](https://ollama.com/library) |
-| **Inference parameters** (temperature, context window) | `services/llm_inference.py` in `shopassist-service` | [Ollama model file reference](https://github.com/ollama/ollama/blob/main/docs/modelfile.md) |
-| **Encoder vs decoder models** | Two *different* model families run side by side: `ollama` serves a decoder (generates text), `classifier` serves BERT-style encoders (score text) | [BERT paper](https://arxiv.org/abs/1810.04805) · [Transformers docs](https://huggingface.co/docs/transformers) |
+| Concept                                                      | Here                                                                                                                                                   | Read more                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| **Large Language Model (LLM)**                         | `llama3.2:3b` — Meta's 3-billion-parameter model, ~2GB, running on your CPU                                                                         | [Hugging Face LLM course](https://huggingface.co/learn/llm-course)                                             |
+| **Transformer**                                        | The architecture every model here is built on                                                                                                          | [&#34;Attention Is All You Need&#34;](https://arxiv.org/abs/1706.03762) (the 2017 paper that started it)       |
+| **Running models locally**                             | The`ollama` container                                                                                                                                | [Ollama](https://github.com/ollama/ollama) · [model library](https://ollama.com/library)                       |
+| **Inference parameters** (temperature, context window) | `services/llm_inference.py` in `shopassist-service`                                                                                                | [Ollama model file reference](https://github.com/ollama/ollama/blob/main/docs/modelfile.md)                    |
+| **Encoder vs decoder models**                          | Two*different* model families run side by side: `ollama` serves a decoder (generates text), `classifier` serves BERT-style encoders (score text) | [BERT paper](https://arxiv.org/abs/1810.04805) · [Transformers docs](https://huggingface.co/docs/transformers) |
 
 ### Making the model useful
 
-| Concept | Here | Read more |
-| --- | --- | --- |
-| **Prompt engineering** | Every `call_*` method's prompt in `services/llm_inference.py` | [Anthropic prompt engineering guide](https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview) |
-| **Agents** | `services/agents/` — one specialist per job (orders, recommendations, general Q&A, escalation) | [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents) |
-| **Orchestration / routing** | `services/orchestrator.py` splits a message into sub-tasks and picks an agent for each | same article, "orchestrator-workers" section |
-| **Tool use / function calling** | `OrderTrackingAgent` plans a call, then really queries Postgres | [Ollama tool support](https://ollama.com/blog/tool-support) |
-| **RAG** (Retrieval-Augmented Generation) | `services/rag.py` — answers policy questions from the shipped PDFs instead of the model's memory | [Original RAG paper](https://arxiv.org/abs/2005.11401) |
-| **Embeddings** | `nomic-embed-text` turns text into a 768-number vector so "refund" can match "money back" | [Getting started with embeddings](https://huggingface.co/blog/getting-started-with-embeddings) |
-| **Vector search** | `document_chunks` in Postgres (pgvector), plus an in-process FAISS index | [pgvector](https://github.com/pgvector/pgvector) · [FAISS](https://faiss.ai/) |
+| Concept                                        | Here                                                                                                | Read more                                                                                                          |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Prompt engineering**                   | Every`call_*` method's prompt in `services/llm_inference.py`                                    | [Anthropic prompt engineering guide](https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview) |
+| **Agents**                               | `services/agents/` — one specialist per job (orders, recommendations, general Q&A, escalation)   | [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)                        |
+| **Orchestration / routing**              | `services/orchestrator.py` splits a message into sub-tasks and picks an agent for each            | same article, "orchestrator-workers" section                                                                       |
+| **Tool use / function calling**          | `OrderTrackingAgent` plans a call, then really queries Postgres                                   | [Ollama tool support](https://ollama.com/blog/tool-support)                                                         |
+| **RAG** (Retrieval-Augmented Generation) | `services/rag.py` — answers policy questions from the shipped PDFs instead of the model's memory | [Original RAG paper](https://arxiv.org/abs/2005.11401)                                                              |
+| **Embeddings**                           | `nomic-embed-text` turns text into a 768-number vector so "refund" can match "money back"         | [Getting started with embeddings](https://huggingface.co/blog/getting-started-with-embeddings)                      |
+| **Vector search**                        | `document_chunks` in Postgres (pgvector), plus an in-process FAISS index                          | [pgvector](https://github.com/pgvector/pgvector) · [FAISS](https://faiss.ai/)                                       |
 
 ### Doing it safely
 
-| Concept | Here | Read more |
-| --- | --- | --- |
-| **PII masking** | `services/pii_masker.py` — strips emails/phones/addresses *before* the model sees them | [NIST guide to PII](https://csrc.nist.gov/pubs/sp/800/122/final) |
-| **Prompt injection** | `GuardrailService.screen_input()` | [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/) |
-| **Output filtering** | `GuardrailService.screen_output()` redacts anything PII-shaped in the reply | same OWASP list (LLM02, sensitive information disclosure) |
-| **Evaluation** | `evaluation/` in `shopassist-service` — scores routing accuracy and retrieval quality | [RAGAS metrics](https://docs.ragas.io/) |
-| **Tracing / observability for LLMs** | Langfuse hooks throughout (optional, off by default) | [Langfuse docs](https://langfuse.com/docs) |
+| Concept                                    | Here                                                                                        | Read more                                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **PII masking**                      | `services/pii_masker.py` — strips emails/phones/addresses *before* the model sees them | [NIST guide to PII](https://csrc.nist.gov/pubs/sp/800/122/final)                                                 |
+| **Prompt injection**                 | `GuardrailService.screen_input()`                                                         | [OWASP Top 10 for LLM Applications](https://owasp.org/www-project-top-10-for-large-language-model-applications/) |
+| **Output filtering**                 | `GuardrailService.screen_output()` redacts anything PII-shaped in the reply               | same OWASP list (LLM02, sensitive information disclosure)                                                       |
+| **Evaluation**                       | `evaluation/` in `shopassist-service` — scores routing accuracy and retrieval quality  | [RAGAS metrics](https://docs.ragas.io/)                                                                          |
+| **Tracing / observability for LLMs** | Langfuse hooks throughout (optional, off by default)                                        | [Langfuse docs](https://langfuse.com/docs)                                                                       |
 
 ### The plumbing around it
 
-| Concept | Here | Read more |
-| --- | --- | --- |
-| **Containers & Compose** | Everything you just ran | [Docker Compose docs](https://docs.docker.com/compose/) |
-| **REST API** | `shopassist-service`, and its interactive docs at `/docs` | [FastAPI](https://fastapi.tiangolo.com/) |
-| **Web UI in pure Python** | `shopassist-client` | [Streamlit](https://docs.streamlit.io/) |
-| **Relational database** | `shopassist-database` — customers, items, orders | [PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial.html) |
-| **Metrics dashboards** | The optional observability overlay above | [Prometheus](https://prometheus.io/docs/introduction/overview/) · [Grafana](https://grafana.com/docs/) |
+| Concept                         | Here                                                          | Read more                                                                                             |
+| ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Containers & Compose**  | Everything you just ran                                       | [Docker Compose docs](https://docs.docker.com/compose/)                                                |
+| **REST API**              | `shopassist-service`, and its interactive docs at `/docs` | [FastAPI](https://fastapi.tiangolo.com/)                                                               |
+| **Web UI in pure Python** | `shopassist-client`                                         | [Streamlit](https://docs.streamlit.io/)                                                                |
+| **Relational database**   | `shopassist-database` — customers, items, orders           | [PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial.html)                           |
+| **Metrics dashboards**    | The optional observability overlay above                      | [Prometheus](https://prometheus.io/docs/introduction/overview/) · [Grafana](https://grafana.com/docs/) |
 
 ### A suggested reading order through the code
 
