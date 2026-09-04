@@ -193,6 +193,14 @@ services:
       # logged a 401 - noise, and an outbound call an offline platform
       # shouldn't be making. Set false when you set the keys above.
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      # Api's own identity string, hardcoded rather than ${APP_TITLE:-...} -
+      # devops/.env's APP_TITLE is client branding ("IISc Alumni Store"),
+      # passed through to shopassist-client below. Without pinning here,
+      # shopassist-service/docker-compose.yml's own default ("AI Agentic
+      # Customer Support Platform") silently lost to that unrelated global
+      # value, the same collision class the rest of this block exists to
+      # avoid.
+      APP_TITLE: "AI Agentic Customer Support Platform"
       # Dummy shared-secret auth. Off by default: the storefront ships a
       # placeholder key, and enforcing without matching the two just locks
       # a learner out of their own stack.
