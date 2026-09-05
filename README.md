@@ -22,7 +22,7 @@ Five containers cooperate to produce that reply:
   you, in a browser
         │
         ▼
-  [ client ]        the storefront (Streamlit). Just a UI - no AI here.
+  [ client ]        the storefront (Node/React). Just a UI - no AI here.
         │  HTTP
         ▼
   [ api ]           the brain (FastAPI). Decides what the question means,
@@ -57,7 +57,7 @@ at the bottom for what each term above means.
 | `shopassist-database` | Postgres            | `shopassist-postgres`                                                                                                | first, no dependencies                |
 | `shopassist-model`    | Ollama + classifier | `shopassist-ollama`, `shopassist-ollama-bootstrap`, `shopassist-classifier`, `shopassist-classifier-bootstrap` | first, no dependencies                |
 | `shopassist-service`  | FastAPI backend     | `shopassist-api`                                                                                                     | after Ollama and Postgres are healthy |
-| `shopassist-client`   | storefront client   | `shopassist-client`                                                                                                  | after the API is healthy              |
+| `shopassist-web`      | storefront client   | `shopassist-web`                                                                                                     | after the API is healthy              |
 
 **Naming**: every container and locally-built image is
 `shopassist-<role>`, not `shopassist-<repo-name>` — that's what you
@@ -82,7 +82,7 @@ own names, since nothing here rebuilds them:
 ollama/ollama:latest            pulled     the LLM server
 pgvector/pgvector:pg17          pulled     Postgres + pgvector
 shopassist-api:latest           built      shopassist-service
-shopassist-client:latest        built      shopassist-client
+shopassist-web:latest           built      shopassist-web
 shopassist-classifier:latest    built      shopassist-model (2 containers)
 shopassist-ollama-bootstrap     built      shopassist-model (model pull job)
 ```
@@ -131,7 +131,7 @@ shopassist-ollama-bootstrap     built      shopassist-model (model pull job)
   ├── shopassist-database/
   ├── shopassist-model/
   ├── shopassist-service/
-  └── shopassist-client/
+  └── shopassist-web/
   ```
 - For `./scripts/up.sh` itself: **bash and curl**. One path also needs
   **`python3` on the host** — the 768-dimension embedding probe that runs
@@ -150,7 +150,7 @@ will block.
 | `shopassist-database` | `pgvector/pgvector:pg17`                         | — (no build)                                                                                                                                                                                                                                                                            | —                                                                                                                                                                                                                    |
 | `shopassist-model`    | `ollama/ollama:latest`, `python:3.12-slim` ×2 | **classifier**: CPU-only `torch` (from PyTorch's own index), transformers, fastapi, uvicorn[standard], sentencepiece, protobuf, pydantic, PyYAML, prometheus-fastapi-instrumentator · **bootstrap**: requests, PyYAML                                                     | `llama3.2:3b` + `nomic-embed-text` into `shopassist-ollama-models`; `nlptown/bert-base-multilingual-uncased-sentiment` + `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` into `shopassist-classifier-models` |
 | `shopassist-service`  | `python:3.12-slim`                               | fastapi, uvicorn[standard], pydantic, python-dotenv, openai, SQLAlchemy, psycopg2-binary, requests, faiss-cpu, numpy, pypdf, reportlab, langchain-text-splitters, langfuse, prometheus-fastapi-instrumentator — all**exact-pinned**, see that repo's `requirements.txt` for why | —                                                                                                                                                                                                                    |
-| `shopassist-client`   | `python:3.12-slim`                               | streamlit, requests, PyYAML, python-dotenv, Pillow                                                                                                                                                                                                                                       | —                                                                                                                                                                                                                    |
+| `shopassist-web`      | `node:20-slim` (multi-stage build)               | client (Vite/React/TypeScript/MUI SPA) built to static assets; server (Express/TypeScript BFF) built and run with `npm install --omit=dev`                                                                                                                                              | —                                                                                                                                                                                                                    |
 | `shopassist-devops`   | —                                                 | — (owns no application code)                                                                                                                                                                                                                                                            | —                                                                                                                                                                                                                    |
 
 Two optional extras, neither part of a default run: the observability
@@ -163,10 +163,13 @@ see the note on it in [What you&#39;re *not* running](#what-youre-not-running).
 ### Running a project outside Docker
 
 Only relevant if you're developing on one project directly rather than
-running the platform. Each needs **Python 3.12** and its own
+running the platform. `shopassist-database`, `shopassist-model` and
+`shopassist-service` each need **Python 3.12** and their own
 `requirements.txt`; `shopassist-service` additionally has
 `evaluation/requirements-eval.txt` (scikit-learn, numpy) for the offline
-eval harness.
+eval harness. `shopassist-web` is the exception — **Node 20+** and
+`npm install` (npm workspaces across `client/` and `server/`), see its
+own README.
 
 One gap to know about: `shopassist-model/classifier/requirements.txt`
 does **not** list `torch`. That's deliberate for the image — its
@@ -194,7 +197,7 @@ git clone https://github.com/bookbee/shopassist-devops.git
 git clone https://github.com/bookbee/shopassist-database.git
 git clone https://github.com/bookbee/shopassist-model.git
 git clone https://github.com/bookbee/shopassist-service.git
-git clone https://github.com/bookbee/shopassist-client.git
+git clone https://github.com/bookbee/shopassist-web.git
 cd shopassist-devops
 
 ./scripts/up.sh          # macOS / Linux
@@ -233,7 +236,7 @@ docker compose logs -f ollama-bootstrap    # model download progress
 docker compose ps                          # health of every service
 ```
 
-Once `shopassist-client` shows `healthy`:
+Once `shopassist-web` shows `healthy`:
 
 - Storefront — [http://localhost:8501](http://localhost:8501)
 - API docs — [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -690,7 +693,7 @@ shopassist-devops/
 ```
 
 Nothing Docker-related lives in this repo for `shopassist-service` or
-`shopassist-client` — each owns its own `Dockerfile`/`docker-compose.yml`;
+`shopassist-web` — each owns its own `Dockerfile`/`docker-compose.yml`;
 see their READMEs.
 
 ## Troubleshooting
@@ -799,13 +802,13 @@ roughly easiest-first within each group.
 | ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | **Containers & Compose**  | Everything you just ran                                       | [Docker Compose docs](https://docs.docker.com/compose/)                                                |
 | **REST API**              | `shopassist-service`, and its interactive docs at `/docs` | [FastAPI](https://fastapi.tiangolo.com/)                                                               |
-| **Web UI in pure Python** | `shopassist-client`                                         | [Streamlit](https://docs.streamlit.io/)                                                                |
+| **Web UI (React SPA)**    | `shopassist-web`                                            | [React](https://react.dev/) / [Vite](https://vite.dev/)                                                |
 | **Relational database**   | `shopassist-database` — customers, items, orders           | [PostgreSQL tutorial](https://www.postgresql.org/docs/current/tutorial.html)                           |
 | **Metrics dashboards**    | The optional observability overlay above                      | [Prometheus](https://prometheus.io/docs/introduction/overview/) · [Grafana](https://grafana.com/docs/) |
 
 ### A suggested reading order through the code
 
-1. `shopassist-client/app.py` — where a message is typed.
+1. `shopassist-web/client/src/chatbot/useChat.ts` — where a message is typed.
 2. `shopassist-service/api/routers/chat.py` — where it arrives.
 3. `shopassist-service/services/orchestrator.py` →
    `handle_customer_query()` — **the one method that runs everything**.

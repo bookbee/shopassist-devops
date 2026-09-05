@@ -28,7 +28,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = Split-Path -Parent $ScriptDir
 $ParentDir = Split-Path -Parent $RootDir
 
-$AllProjects = @("shopassist-database", "shopassist-model", "shopassist-service", "shopassist-client")
+$AllProjects = @("shopassist-database", "shopassist-model", "shopassist-service", "shopassist-web")
 # No .env bootstrapping for the sibling projects, deliberately. Every
 # setting the platform needs is either defaulted in a compose file
 # (${VAR:-default}) or pinned explicitly in this repo's
@@ -228,7 +228,7 @@ Still coming up? Useful commands:
     docker compose logs -f ollama-bootstrap  # watch the model download
     docker compose ps                        # health status of every service
 
-Once shopassist-client shows "healthy":
+Once shopassist-web shows "healthy":
 
     Storefront:  http://localhost:8501
     API docs:    http://localhost:8000/docs

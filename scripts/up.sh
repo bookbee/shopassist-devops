@@ -34,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PARENT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
-ALL_PROJECTS=(shopassist-database shopassist-model shopassist-service shopassist-client)
+ALL_PROJECTS=(shopassist-database shopassist-model shopassist-service shopassist-web)
 # No .env bootstrapping for the sibling projects, deliberately. Every
 # setting the platform needs is either defaulted in a compose file
 # (${VAR:-default}) or pinned explicitly in this repo's
@@ -253,7 +253,7 @@ Still coming up? Useful commands:
     docker compose logs -f ollama-bootstrap  # watch the model download
     docker compose ps                        # health status of every service
 
-Once shopassist-client shows "healthy":
+Once shopassist-web shows "healthy":
 
     Storefront:  http://localhost:8501
     API docs:    http://localhost:8000/docs

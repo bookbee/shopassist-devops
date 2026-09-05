@@ -7,7 +7,7 @@
 #   ├── shopassist-database/
 #   ├── shopassist-model/
 #   ├── shopassist-service/    FastAPI backend -> container/image "shopassist-api"
-#   └── shopassist-client/     Web client      -> container/image "shopassist-client"
+#   └── shopassist-web/        Web client      -> container/image "shopassist-web"
 #
 # `include:` pulls in all four projects' own compose files unmodified -
 # each stays fully self-contained and independently runnable via
@@ -27,13 +27,13 @@
 #   classifier-model download)
 # - shopassist-service   -> container/image `shopassist-api` (the API is the
 #   role; "shopassist-service" is the *project*, not the container)
-# - shopassist-client     -> container/image `shopassist-client` (same name,
+# - shopassist-web        -> container/image `shopassist-web` (same name,
 #   project already named after its role)
 include:
   - path: ../shopassist-database/docker-compose.yml
   - path: ../shopassist-model/docker-compose.yml
   - path: ../shopassist-service/docker-compose.yml
-  - path: ../shopassist-client/docker-compose.yml
+  - path: ../shopassist-web/docker-compose.yml
 
 networks:
   shopassist-platform:
@@ -195,7 +195,7 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       # Api's own identity string, hardcoded rather than ${APP_TITLE:-...} -
       # devops/.env's APP_TITLE is client branding ("IISc Alumni Store"),
-      # passed through to shopassist-client below. Without pinning here,
+      # passed through to shopassist-web below. Without pinning here,
       # shopassist-service/docker-compose.yml's own default ("AI Agentic
       # Customer Support Platform") silently lost to that unrelated global
       # value, the same collision class the rest of this block exists to
@@ -240,12 +240,16 @@ services:
       - shopassist-api-network
       - shopassist-platform
 
-  # --- shopassist-client storefront client ---------------------------------
-  # Same idea as `api` above: overrides shopassist-client/docker-compose.yml's
+  # --- shopassist-web storefront client -------------------------------
+  # Same idea as `api` above: overrides shopassist-web/docker-compose.yml's
   # standalone default (host.docker.internal) with the real container URL.
   client:
     ports:
-      - "${WEB_PORT:-8501}:8501"
+      # Target is 3000, not 8501: the Express server (Node/React, this
+      # project's replacement for the Streamlit-era shopassist-client)
+      # listens on 3000 internally - only the published/host side keeps
+      # the WEB_PORT:-8501 convention. See shopassist-web/docker-compose.yml.
+      - "${WEB_PORT:-8501}:3000"
     environment:
       API_BASE_URL: http://api:8000
       # Same variable as api's CHAT_REQUEST_TIMEOUT_SECONDS above, on
@@ -258,5 +262,5 @@ services:
       api:
         condition: service_healthy
     networks:
-      - shopassist-client-network
+      - shopassist-web-network
       - shopassist-platform

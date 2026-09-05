@@ -11,7 +11,7 @@ name: Compose smoke test
 # Secrets and variables -> Actions -> Variables). Set these if you fork the
 # whole platform, or if any repo moves owner:
 #   SHOPASSIST_DATABASE_REPO, SHOPASSIST_MODEL_REPO, SHOPASSIST_SERVICE_REPO,
-#   SHOPASSIST_CLIENT_REPO
+#   SHOPASSIST_WEB_REPO
 #
 # If any of the four repos are private, cross-repo checkout also needs a
 # PAT with access to them, stored as a secret (e.g. PLATFORM_CHECKOUT_TOKEN)
@@ -28,7 +28,7 @@ env:
   SHOPASSIST_DATABASE_REPO: ${{ vars.SHOPASSIST_DATABASE_REPO || 'bookbee/shopassist-database' }}
   SHOPASSIST_MODEL_REPO: ${{ vars.SHOPASSIST_MODEL_REPO || 'bookbee/shopassist-model' }}
   SHOPASSIST_SERVICE_REPO: ${{ vars.SHOPASSIST_SERVICE_REPO || 'bookbee/shopassist-service' }}
-  SHOPASSIST_CLIENT_REPO: ${{ vars.SHOPASSIST_CLIENT_REPO || 'bookbee/shopassist-client' }}
+  SHOPASSIST_WEB_REPO: ${{ vars.SHOPASSIST_WEB_REPO || 'bookbee/shopassist-web' }}
 
 jobs:
   smoke-test:
@@ -60,11 +60,11 @@ jobs:
           path: shopassist-service
           token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Checkout shopassist-client
+      - name: Checkout shopassist-web
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.SHOPASSIST_CLIENT_REPO }}
-          path: shopassist-client
+          repository: ${{ env.SHOPASSIST_WEB_REPO }}
+          path: shopassist-web
           token: ${{ secrets.PLATFORM_CHECKOUT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Prepare .env files (same defaults as scripts/up.sh)
@@ -103,7 +103,7 @@ jobs:
         working-directory: shopassist-devops
         run: |
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:8501/_stcore/health >/dev/null; then
+            if curl -sf http://localhost:8501/healthz >/dev/null; then
               echo "Storefront is healthy"
               exit 0
             fi
